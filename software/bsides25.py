@@ -715,6 +715,10 @@ class SnakeScreen(Screen):
     def __init__(self, oled):
         super().__init__(oled)
 
+        print("Snake HUD_H:", self.HUD_H)
+        print("Snake GRID_W:", self.GRID_W, "GRID_H:", self.GRID_H)
+        print("Snake GRID_Y0:", self.GRID_Y0)
+
         # --- HUD / grid metrics ---
         self.HUD_H = wri6.font.height()                 # typically 8 px
         self.GRID_W = OLED_WIDTH // self.CELL           # 32
@@ -1263,6 +1267,8 @@ async def main():
     setup_buttons()
     load_params()
     show_bsides_logo(oled)
+    print("wri6 font height:", wri6.font.height())
+    print("OLED size:", oled.width, "x", oled.height)
     print("Username: {}".format(USERNAME))
 
     await asyncio.gather(ui_task(oled), inactivity_task(oled), neopixel_task(np))
