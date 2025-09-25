@@ -817,14 +817,18 @@ class SnakeScreen(Screen):
     def _draw_hud(self):
         # Clear HUD row
         self.oled.fill_rect(0, 0, self.oled.width, self.HUD_H, 0)
+
         # Text: SCORE and HI
         wri6.set_textpos(self.oled, 0, 0)
         wri6.printstring("SCORE:{:d}".format(self.score))
-        # right-justified HI
+
         hi_txt = "HI:{:d}".format(self.high_score)
         x_hi = self.oled.width - wri6.stringlen(hi_txt)
         wri6.set_textpos(self.oled, 0, x_hi)
         wri6.printstring(hi_txt)
+
+        # --- boundary line ---
+        self.oled.hline(0, self.HUD_H - 1, self.oled.width, 1)
 
     def render(self):
         self.oled.fill(0)
