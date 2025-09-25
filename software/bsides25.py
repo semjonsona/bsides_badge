@@ -691,6 +691,165 @@ class OurteamScreen(TextScreen):
         )
         super().__init__(oled, wri6, text)
 
+class SnakeScreen(Screen):
+    """
+    Playable Snake for 128x64 SSD1306.
+    - Grid cell size: 4x4 px  => 32 x 16 cells.
+    - Buttons: NEXT turn right, PREV turn left, SELECT start/pause, BACK exit.
+    """
+    CELL = 4
+    GRID_W = OLED_WIDTH // CELL   # 32
+    GRID_H = OLED_HEIGHT // CELL  # 16
+
+    # directions in (dx, dy), index used for left/right turns
+    DIRS = [(1,0), (0,1), (-1,0), (0,-1)]  # R, D, L, U
+
+    def __init__(self, oled):
+        super().__init__(oled)
+        self.running = True
+        self.paused = False
+        self.tick_ms_base = 180      # base speed (lower is faster)
+        self.tick_ms_min  = 70       # min speed
+        self.tick_ms = self.tick_ms_base
+        self.score = 0
+
+        # game state
+        self.dir_idx = 0             # start moving right
+        self.snake = [(self.GRID_W//2 - 1, self.GRID_H//2)]  # head first
+        # start with length 4 moving right
+        self.snake += [(self.snake[0][0]-1, self.snake[0][1]),
+                       (self.snake[0][0]-2, self.snake[0][1]),
+                       (self.snake[0][0]-3, self.snake[0][1])]
+
+        self.food = self._rand_empty_cell()
+        self.game_over = False
+
+        # start loop
+        self._task = asyncio.create_task(self._loop())
+        self.render()
+
+    # ---------- helpers ----------
+    def _cell_free(self, x, y):
+        return (x, y) not in self.snake
+
+    def _rand_empty_cell(self):
+        # simple bounded tries; grid is small so this is fine
+        for _ in range(200):
+            x = urandom.getrandbits(5) % self.GRID_W     # 0..31
+            y = urandom.getrandbits(5) % self.GRID_H     # 0..15
+            if self._cell_free(x, y):
+                return (x, y)
+        # fallback (very unlikely)
+        for yy in range(self.GRID_H):
+            for xx in range(self.GRID_W):
+                if self._cell_free(xx, yy):
+                    return (xx, yy)
+        return (0, 0)
+
+    def _turn_left(self):
+        self.dir_idx = (self.dir_idx - 1) % 4
+
+    def _turn_right(self):
+        self.dir_idx = (self.dir_idx + 1) % 4
+
+    def _advance(self):
+        dx, dy = self.DIRS[self.dir_idx]
+        hx, hy = self.snake[0]
+        nx, ny = hx + dx, hy + dy
+
+        # wall collision ends game
+        if nx < 0 or nx >= self.GRID_W or ny < 0 or ny >= self.GRID_H:
+            self.game_over = True
+            return
+
+        # self collision
+        if (nx, ny) in self.snake:
+            self.game_over = True
+            return
+
+        # move
+        self.snake.insert(0, (nx, ny))
+
+        # eat?
+        if (nx, ny) == self.food:
+            self.score += 1
+            # slightly speed up; clamp to min
+            self.tick_ms = max(self.tick_ms_min, self.tick_ms_base - self.score * 6)
+            self.food = self._rand_empty_cell()
+        else:
+            self.snake.pop()  # remove tail
+
+    async def _loop(self):
+        try:
+            while self.running:
+                if not self.paused and not self.game_over:
+                    self._advance()
+                    self.render()
+                await asyncio.sleep_ms(self.tick_ms)
+        except asyncio.CancelledError:
+            return
+
+    # ---------- Screen API ----------
+    def render(self):
+        self.oled.fill(0)
+
+        # draw food
+        fx, fy = self.food
+        self.oled.fill_rect(fx*self.CELL, fy*self.CELL, self.CELL, self.CELL, 1)
+
+        # draw snake
+        # head thicker (filled), body outlined for contrast
+        for i, (x, y) in enumerate(self.snake):
+            px, py = x*self.CELL, y*self.CELL
+            if i == 0:
+                self.oled.fill_rect(px, py, self.CELL, self.CELL, 1)
+            else:
+                self.oled.rect(px, py, self.CELL, self.CELL, 1)
+
+        # HUD (score / state)
+        # (small font so it doesn’t obstruct much)
+        wri6.set_textpos(self.oled, 0, 0)
+        if self.game_over:
+            wri6.printstring("SCORE:{}  GAME OVER".format(self.score))
+        elif self.paused:
+            wri6.printstring("SCORE:{}  PAUSED".format(self.score))
+        else:
+            wri6.printstring("SCORE:{}".format(self.score))
+
+        self.oled.show()
+
+    async def handle_button(self, btn):
+        # turning always allowed during play
+        if not self.game_over and not self.paused:
+            if btn == BTN_NEXT:
+                self._turn_right()
+            elif btn == BTN_PREV:
+                self._turn_left()
+
+        if btn == BTN_SELECT:
+            if self.game_over:
+                # restart
+                self.__init__(self.oled)  # re-init safely
+                return self
+            else:
+                # toggle pause
+                self.paused = not self.paused
+                self.render()
+                return self
+
+        if btn == BTN_BACK:
+            # exit to menu
+            self.running = False
+            try:
+                if self._task:
+                    self._task.cancel()
+            except:
+                pass
+            return MenuScreen(self.oled)
+
+        return self
+
+
 # -----------------------
 # Menu screen
 # -----------------------
@@ -700,7 +859,8 @@ class MenuScreen(Screen):
              ("Sponsors", SponsorsScreen),
              ("Our team", OurteamScreen),
              ("Lights", LightsScreen),
-             ("Badge", BadgeScreen)]
+             ("Badge", BadgeScreen),
+             ("Snake", SnakeScreen)]
 
     def __init__(self, oled):
         super().__init__(oled)
