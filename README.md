@@ -23,8 +23,7 @@ esptool --port <port> --baud 921600 write_flash 0 ESP32_GENERIC_C3-20250911-v1.2
 ## Copy files to the badge
 
 ```
-cd badge_software
-mpremote <port> fs cp -r . :/
+mpremote <port> fs cp -r software/* :/
 ```
 
-If the code is already running on the badge and `mpremote` does not connect, hold `SELECT` button down while pressing `RESET` button.
+If the code is already running on the badge and `mpremote` does not connect, hold `SELECT` button down while resetting your badge (pressing `RESET` button or toggling ON/OFF switch).
