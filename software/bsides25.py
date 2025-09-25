@@ -698,7 +698,7 @@ class OurteamScreen(TextScreen):
 class SnakeScreen(Screen):
     """
     Snake for 128x64 SSD1306.
-    - Grid cells 4x4 px.
+    - Grid: 4x4 px cells
     - HUD row at top with boundary line; full border around playfield.
     - Controls:
         NEXT  -> turn right
@@ -706,7 +706,7 @@ class SnakeScreen(Screen):
         SELECT-> pause/resume (or restart on game over)
         BACK  -> exit to menu
 
-    NOTE: In ui_task(), skip auto-render when current screen is SnakeScreen.
+    NOTE: In ui_task(), do not auto-render when current screen is SnakeScreen.
     """
     CELL = 4
     DIRS = [(1,0), (0,1), (-1,0), (0,-1)]  # R, D, L, U
@@ -714,17 +714,17 @@ class SnakeScreen(Screen):
     def __init__(self, oled):
         super().__init__(oled)
 
-        # ----- GEOMETRY (assign first!) -----
-        self.HUD_H = wri6.font.height()                 # usually 8
+        # ----- GEOMETRY -----
+        self.HUD_H = wri6.font.height()                 # your build reports 14
         self.GRID_W = OLED_WIDTH // self.CELL           # 32
-        self.GRID_H = (OLED_HEIGHT - self.HUD_H) // self.CELL  # 14
+        self.GRID_H = (OLED_HEIGHT - self.HUD_H) // self.CELL  # e.g. 12
         self.GRID_Y0 = self.HUD_H                       # playfield starts below HUD
 
-        # Derived borders
+        # Playfield pixel bounds
         self.x_left   = 0
         self.x_right  = self.oled.width - 1            # 127
-        self.y_top    = self.GRID_Y0                   # HUD consumes 0..HUD_H-1
-        self.y_bot    = self.GRID_Y0 + self.GRID_H * self.CELL - 1
+        self.y_top    = self.GRID_Y0
+        self.y_bot    = self.GRID_Y0 + self.GRID_H * self.CELL - 1  # e.g. 61
 
         # ----- GAME STATE -----
         self.running = True
@@ -748,16 +748,6 @@ class SnakeScreen(Screen):
 
         # Start loop last
         self._task = asyncio.create_task(self._loop())
-
-        # Safe debug (after everything is defined)
-        try:
-            print("Snake HUD_H:", self.HUD_H,
-                  "GRID_W:", self.GRID_W, "GRID_H:", self.GRID_H,
-                  "GRID_Y0:", self.GRID_Y0,
-                  "xR:", self.x_right, "yB:", self.y_bot)
-        except Exception:
-            pass
-
         self.render()
 
     # ---------- helpers ----------
@@ -792,12 +782,15 @@ class SnakeScreen(Screen):
             self._end_game()
             return
 
+        # self collision
         if (nx, ny) in self.snake:
             self._end_game()
             return
 
+        # move
         self.snake.insert(0, (nx, ny))
 
+        # eat
         if (nx, ny) == self.food:
             self.score += 1
             self.tick_ms = max(self.tick_ms_min, self.tick_ms_base - self.score * 6)
@@ -814,7 +807,8 @@ class SnakeScreen(Screen):
                 save_params()
             except Exception:
                 pass
-        self.render()  # show overlay immediately
+        # show overlay immediately
+        self.render()
 
     async def _loop(self):
         try:
@@ -847,10 +841,10 @@ class SnakeScreen(Screen):
     def render(self):
         self.oled.fill(0)
 
-        # HUD first
+        # HUD
         self._draw_hud()
 
-        # Food
+        # Food (offset by HUD)
         fx, fy = self.food
         self.oled.fill_rect(fx*self.CELL, self.GRID_Y0 + fy*self.CELL, self.CELL, self.CELL, 1)
 
@@ -867,9 +861,9 @@ class SnakeScreen(Screen):
         if self.paused:
             self._overlay_center("PAUSED")
         elif self.game_over:
-            self._overlay_center("GAME OVER  SELECT=Restart")
+            self._overlay_gameover()
 
-        # ---- Draw playfield borders LAST so they stay visible ----
+        # --- Draw playfield borders LAST so they stay visible ---
         # Left/right verticals span the full playfield height.
         self.oled.vline(self.x_left,  self.y_top, self.y_bot - self.y_top + 1, 1)
         self.oled.vline(self.x_right, self.y_top, self.y_bot - self.y_top + 1, 1)
@@ -879,14 +873,79 @@ class SnakeScreen(Screen):
         self.oled.show()
 
     def _overlay_center(self, text):
-        tw = wri6.stringlen(text)
-        x = (self.oled.width - tw) // 2
-        y = self.GRID_Y0 + (self.GRID_H * self.CELL) // 2 - (wri6.font.height() // 2)
+        """Draw a single-line centered overlay; safely clamps width."""
         pad = 2
-        self.oled.fill_rect(x - pad, y - pad, tw + 2*pad, wri6.font.height() + 2*pad, 0)
-        self.oled.rect(x - pad, y - pad, tw + 2*pad, wri6.font.height() + 2*pad, 1)
-        wri6.set_textpos(self.oled, y, x)
+        fh = wri6.font.height()
+        max_text_w = self.oled.width - 2 * pad
+
+        # Clamp/ellipsize if too wide
+        if wri6.stringlen(text) > max_text_w:
+            base = text
+            while base and wri6.stringlen(base + "...") > max_text_w:
+                base = base[:-1]
+            text = (base + "...") if base else "..."
+
+        tw = wri6.stringlen(text)
+        box_w = min(self.oled.width, tw + 2 * pad)
+        box_h = fh + 2 * pad
+
+        x = (self.oled.width - box_w) // 2
+        if x < 0: x = 0
+        y = self.GRID_Y0 + (self.GRID_H * self.CELL - box_h) // 2
+        if y < self.GRID_Y0: y = self.GRID_Y0
+
+        # box
+        self.oled.fill_rect(x, y, box_w, box_h, 0)
+        self.oled.rect(x, y, box_w, box_h, 1)
+
+        # text
+        tw = wri6.stringlen(text)  # recalc in case truncated
+        tx = x + (box_w - tw) // 2
+        if tx < 0: tx = 0
+        wri6.set_textpos(self.oled, y + pad, tx)
         wri6.printstring(text)
+
+    def _overlay_gameover(self):
+        """Two-line centered overlay that always fits."""
+        lines = ["GAME OVER", "SELECT=Restart"]
+        pad = 2
+        gap = 1
+        fh = wri6.font.height()
+
+        # Ellipsize each line if needed
+        trimmed = []
+        for s in lines:
+            if wri6.stringlen(s) <= self.oled.width - 2 * pad:
+                trimmed.append(s)
+            else:
+                base = s
+                while base and wri6.stringlen(base + "...") > self.oled.width - 2 * pad:
+                    base = base[:-1]
+                trimmed.append((base + "...") if base else "...")
+        lines = trimmed
+
+        max_line_w = max(wri6.stringlen(s) for s in lines)
+        box_w = min(self.oled.width, max_line_w + 2 * pad)
+        box_h = 2 * fh + gap + 2 * pad
+
+        x = (self.oled.width - box_w) // 2
+        if x < 0: x = 0
+        y = self.GRID_Y0 + (self.GRID_H * self.CELL - box_h) // 2
+        if y < self.GRID_Y0: y = self.GRID_Y0
+
+        # box
+        self.oled.fill_rect(x, y, box_w, box_h, 0)
+        self.oled.rect(x, y, box_w, box_h, 1)
+
+        # lines
+        ty = y + pad
+        for s in lines:
+            tw = wri6.stringlen(s)
+            tx = x + (box_w - tw) // 2
+            if tx < 0: tx = 0
+            wri6.set_textpos(self.oled, ty, tx)
+            wri6.printstring(s)
+            ty += fh + gap
 
     # ---------- input ----------
     async def handle_button(self, btn):
@@ -905,8 +964,7 @@ class SnakeScreen(Screen):
                         await asyncio.sleep_ms(0)
                 except Exception:
                     pass
-            # re-init fresh
-            if self.game_over:
+                # re-init fresh
                 self.__init__(self.oled)
                 return self
             else:
