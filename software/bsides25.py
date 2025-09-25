@@ -399,6 +399,105 @@ class LightsScreen(ListScreen):
         save_params()
         return MenuScreen(self.oled)
 
+
+# -----------------------
+# Utils screens
+# -----------------------
+
+class StopwatchScreen(Screen):
+    """
+    Simple stopwatch with live updating.
+    Controls:
+      SELECT: Start/Stop
+      PREV:   Reset (when stopped)
+      BACK:   Exit
+    """
+    def __init__(self, oled):
+        super().__init__(oled)
+        self.running = False
+        self.start_ms = 0
+        self.elapsed_ms = 0
+        # start a small updater so time refreshes while running
+        self._ticker = asyncio.create_task(self._tick())
+
+    async def _tick(self):
+        try:
+            while True:
+                if screen is self and self.running:
+                    self.render()
+                await asyncio.sleep_ms(100)
+        except asyncio.CancelledError:
+            return
+
+    def _fmt(self, ms):
+        s, cs = divmod(ms // 10, 100)      # centiseconds
+        h, s = divmod(s, 3600)
+        m, s = divmod(s, 60)
+        return "%02d:%02d:%02d.%02d" % (h, m, s, cs)
+
+    def render(self):
+        # update elapsed if running
+        if self.running:
+            now = time.ticks_ms()
+            self.elapsed_ms = time.ticks_add(
+                time.ticks_diff(now, self.start_ms), 0
+            ) + self._paused_base
+
+        self.oled.fill(0)
+        # Title
+        wri10.set_textpos(self.oled, 0, 0)
+        wri10.printstring("Stopwatch")
+        # Time (big)
+        wri20.set_textpos(self.oled, 28, 0)
+        wri20.printstring(self._fmt(self.elapsed_ms))
+        # Hints
+        wri6.set_textpos(self.oled, 50, 0)
+        if self.running:
+            wri6.printstring("SELECT=Stop  BACK=Exit")
+        else:
+            wri6.printstring("SELECT=Start PREV=Reset BACK=Exit")
+        self.oled.show()
+
+    async def handle_button(self, btn):
+        if btn == BTN_SELECT:
+            if not self.running:
+                # starting: remember base elapsed (supports resume)
+                self._paused_base = self.elapsed_ms
+                self.start_ms = time.ticks_ms()
+                self.running = True
+            else:
+                # stopping: lock in elapsed
+                now = time.ticks_ms()
+                self.elapsed_ms = self._paused_base + time.ticks_diff(now, self.start_ms)
+                self.running = False
+        elif btn == BTN_PREV and not self.running:
+            self.elapsed_ms = 0
+            self._paused_base = 0
+        elif btn == BTN_BACK:
+            # stop updater task when leaving
+            self._ticker.cancel()
+            return UtilsScreen(self.oled)
+        self.render()
+        return self
+
+    # initialize paused base
+    _paused_base = 0
+
+
+utils_screens = [("Stopwatch", StopwatchScreen)]
+
+class UtilsScreen(ListScreen):
+    def __init__(self, oled):
+        super().__init__(oled, "Utils", utils_screens)
+
+    def on_select(self, index):
+        cls = utils_screens[index][1]
+        return cls(self.oled)
+
+    def on_back(self):
+        return MenuScreen(self.oled)
+
+
 # -----------------------
 # Badge screens
 # -----------------------
@@ -700,6 +799,7 @@ class MenuScreen(Screen):
     items = [("About", AboutScreen),
              ("Sponsors", SponsorsScreen),
              ("Our team", OurteamScreen),
+             ("Utils", UtilsScreen),
              ("Lights", LightsScreen),
              ("Badge", BadgeScreen)]
 
@@ -995,10 +1095,10 @@ async def neopixel_task(np):
                    ("Breathe", led_eff_breathe),
                    ("Comet", led_eff_comet),
                    ("Rainbow Comet", led_eff_rainbow_comet),
-                   ("Ping-Pong",      led_eff_ping_pong),
-                   ("Dual Hue",       led_eff_dual_hue),        
-                   ("Aurora",         led_eff_aurora),
-                   ("Spiral Spin",         led_eff_spiral_spin),
+                   ("Ping-Pong", led_eff_ping_pong),
+                   ("Dual Hue", led_eff_dual_hue),        
+                   ("Aurora", led_eff_aurora),
+                   ("Spiral Spin", led_eff_spiral_spin),
                    ("Cycle_All", led_eff_autocycle)]
 
     while True:
