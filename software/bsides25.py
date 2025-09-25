@@ -846,6 +846,13 @@ class SnakeScreen(Screen):
         # HUD
         self._draw_hud()
 
+        # borders around playfield
+        x0 = 0
+        y0 = self.GRID_Y0
+        w = self.GRID_W * self.CELL
+        h = self.GRID_H * self.CELL
+        self.oled.rect(x0, y0, w, h, 1)
+
         # food (offset by HUD)
         fx, fy = self.food
         self.oled.fill_rect(fx*self.CELL, self.GRID_Y0 + fy*self.CELL, self.CELL, self.CELL, 1)
