@@ -11,6 +11,7 @@ import time, micropython
 from machine import Pin, I2C
 import ssd1306, neopixel
 import bsides_logo
+import math
 
 # Writer
 from writer.writer import Writer
@@ -861,6 +862,128 @@ def led_eff_rainbow_comet(np, oldstate):
     return state
 
 
+def led_eff_ping_pong(np, oldstate):
+    """
+    Two bouncing heads with fading tails (like a KITT/Cylon sweep on a ring).
+    """
+    n = len(np)
+    state = oldstate or {"pos": 0.0, "dir": 1}
+
+    # Fade existing pixels for trailing effect
+    fade = 0.5 + ((led_speed.maxval - led_speed.value) / led_speed.maxval * 0.4)
+    for i in range(n):
+        r, g, b = np[i]
+        np[i] = (int(r * fade), int(g * fade), int(b * fade))
+
+    # Primary head position (linear, reflecting at ends)
+    pos = state["pos"]
+    dir_ = state["dir"]
+    speed = max(0.05, led_speed.value / 100)  # movement per frame
+    pos += dir_ * speed
+    if pos <= 0:
+        pos = 0
+        dir_ = 1
+    elif pos >= n - 1:
+        pos = n - 1
+        dir_ = -1
+
+    head1 = int(pos)
+    # Second head mirrors across the strip ends
+    head2 = (n - 1) - head1
+
+    rgb = hsv_to_rgb(led_hue.value, led_sat.value/100, led_brightness.value/100)
+    np[head1] = rgb
+    np[head2] = rgb
+
+    state["pos"], state["dir"] = pos, dir_
+    return state
+
+
+def led_eff_dual_hue(np, oldstate):
+    """
+    Opposite halves blend Hue -> Hue+180, rotating slowly.
+    """
+    state = oldstate or {"phase": 0.0}
+    n = len(np)
+
+    hue_a = led_hue.value % 360
+    hue_b = (hue_a + 180) % 360
+    s = led_sat.value / 100
+    v = led_brightness.value / 100
+
+    for i in range(n):
+        # angle around ring with a rotating offset
+        a = (2 * math.pi * i / n) + state["phase"]
+        # smooth, mirrored gradient: 1 on one side, 0 on the opposite side
+        m = 0.5 * (1 + math.cos(a))  # 1..0..1 around the circle
+        # interpolate hue between A and B by m
+        # (distance <= 180 so simple lerp is fine)
+        hue = (hue_a * m + hue_b * (1 - m)) % 360
+        np[i] = hsv_to_rgb(hue, s, v)
+
+    # rotate divider; Speed controls rotation rate
+    state["phase"] += led_speed.value / 400.0
+    return state
+
+
+def led_eff_aurora(np, oldstate):
+    """
+    Northern-lights style waves in green and purple.
+    """
+    state = oldstate or {"p1": 0.0, "p2": 0.0}
+    n = len(np)
+
+    hue_g = 130   # green-ish
+    hue_p = 280   # purple-ish
+    s = (led_sat.value / 100) * 0.9
+    v_max = led_brightness.value / 100
+
+    for i in range(n):
+        x = 2 * math.pi * i / n
+        # two gentle, offset waves
+        w1 = 0.5 * (1 + math.sin(x + state["p1"]))       # 0..1
+        w2 = 0.5 * (1 + math.sin(2 * x - state["p2"]))   # 0..1
+
+        # color mix and brightness breathing
+        mix = 0.6 * w1 + 0.4 * (1 - w2)                  # 0..1
+        hue = (hue_g * mix + hue_p * (1 - mix)) % 360
+        v = (0.25 + 0.75 * (0.5 * (1 + math.sin(x*0.8 + state["p2"]/2)))) * v_max
+
+        np[i] = hsv_to_rgb(hue, s, v)
+
+    # slow evolving phases; Speed affects flow
+    sp = max(0.05, led_speed.value / 200.0)
+    state["p1"] += sp * 0.6
+    state["p2"] += sp * 0.3
+    return state
+
+
+def led_eff_spiral_spin(np, oldstate):
+    """
+    Rotating brightness wave around the ring, giving a spiral illusion.
+    """
+    state = oldstate or {"phase": 0.0}
+    n = len(np)
+    waves = 2  # try 1, 2, or 3 for different looks
+    gamma = 1.6  # contrast
+
+    s = led_sat.value/100
+    v_base = led_brightness.value/100
+    hue = led_hue.value
+
+    for i in range(n):
+        # normalized position around the ring
+        t = (i / n) * (2 * math.pi * waves) + state["phase"]
+        b = 0.5 * (1 + math.sin(t))              # 0..1
+        b = b ** gamma                           # contrast curve
+        r, g, b_rgb = hsv_to_rgb(hue, s, v_base * b)
+        np[i] = (r, g, b_rgb)
+
+    # Rotate the wave; speed controls angular velocity
+    state["phase"] += (led_speed.value / 200)    # tweak feel here
+    return state
+
+
 async def neopixel_task(np):
     global led_effect
     global led_effects
@@ -872,6 +995,10 @@ async def neopixel_task(np):
                    ("Breathe", led_eff_breathe),
                    ("Comet", led_eff_comet),
                    ("Rainbow Comet", led_eff_rainbow_comet),
+                   ("Ping-Pong",      led_eff_ping_pong),
+                   ("Dual Hue",       led_eff_dual_hue),        
+                   ("Aurora",         led_eff_aurora),
+                   ("Spiral Spin",         led_eff_spiral_spin),
                    ("Cycle_All", led_eff_autocycle)]
 
     while True:
