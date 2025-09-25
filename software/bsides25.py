@@ -694,32 +694,44 @@ class OurteamScreen(TextScreen):
 class SnakeScreen(Screen):
     """
     Playable Snake for 128x64 SSD1306.
-    - Grid cell size: 4x4 px  => 32 x 16 cells.
-    - Buttons: NEXT turn right, PREV turn left, SELECT start/pause, BACK exit.
+    - Grid cell size: 4x4 px -> width = 32 cells, height depends on HUD.
+    - Buttons: NEXT turn right, PREV turn left, SELECT start/pause (or restart on game over), BACK exit.
     """
     CELL = 4
-    GRID_W = OLED_WIDTH // CELL   # 32
-    GRID_H = OLED_HEIGHT // CELL  # 16
 
     # directions in (dx, dy), index used for left/right turns
     DIRS = [(1,0), (0,1), (-1,0), (0,-1)]  # R, D, L, U
 
     def __init__(self, oled):
         super().__init__(oled)
+
+        # --- HUD metrics (reserve top row for text) ---
+        self.HUD_H = wri6.font.height()            # typically 8 px
+        self.GRID_W = OLED_WIDTH // self.CELL      # 32
+        self.GRID_H = (OLED_HEIGHT - self.HUD_H) // self.CELL  # 14 rows of gameplay
+        self.GRID_Y0 = self.HUD_H                  # gameplay area starts below HUD
+
+        # --- game state ---
         self.running = True
         self.paused = False
-        self.tick_ms_base = 180      # base speed (lower is faster)
-        self.tick_ms_min  = 70       # min speed
+        self.tick_ms_base = 180
+        self.tick_ms_min  = 70
         self.tick_ms = self.tick_ms_base
         self.score = 0
 
-        # game state
-        self.dir_idx = 0             # start moving right
-        self.snake = [(self.GRID_W//2 - 1, self.GRID_H//2)]  # head first
-        # start with length 4 moving right
-        self.snake += [(self.snake[0][0]-1, self.snake[0][1]),
-                       (self.snake[0][0]-2, self.snake[0][1]),
-                       (self.snake[0][0]-3, self.snake[0][1])]
+        # load persistent high score
+        try:
+            self.high_score = snake_high_score.value
+        except NameError:
+            # fallback if param wasn't added (shouldn't happen if step 1 was done)
+            self.high_score = 0
+
+        self.dir_idx = 0  # start moving right
+
+        # Start roughly center
+        cx = self.GRID_W // 2
+        cy = self.GRID_H // 2
+        self.snake = [(cx, cy), (cx-1, cy), (cx-2, cy), (cx-3, cy)]
 
         self.food = self._rand_empty_cell()
         self.game_over = False
@@ -733,10 +745,10 @@ class SnakeScreen(Screen):
         return (x, y) not in self.snake
 
     def _rand_empty_cell(self):
-        # simple bounded tries; grid is small so this is fine
+        # grid is small; bounded random tries
         for _ in range(200):
             x = urandom.getrandbits(5) % self.GRID_W     # 0..31
-            y = urandom.getrandbits(5) % self.GRID_H     # 0..15
+            y = urandom.getrandbits(5) % self.GRID_H     # 0..(GRID_H-1)
             if self._cell_free(x, y):
                 return (x, y)
         # fallback (very unlikely)
@@ -757,14 +769,14 @@ class SnakeScreen(Screen):
         hx, hy = self.snake[0]
         nx, ny = hx + dx, hy + dy
 
-        # wall collision ends game
+        # wall collision (bounded by GRID_W/GRID_H)
         if nx < 0 or nx >= self.GRID_W or ny < 0 or ny >= self.GRID_H:
-            self.game_over = True
+            self._end_game()
             return
 
         # self collision
         if (nx, ny) in self.snake:
-            self.game_over = True
+            self._end_game()
             return
 
         # move
@@ -773,11 +785,23 @@ class SnakeScreen(Screen):
         # eat?
         if (nx, ny) == self.food:
             self.score += 1
-            # slightly speed up; clamp to min
+            # speed up a bit; clamp
             self.tick_ms = max(self.tick_ms_min, self.tick_ms_base - self.score * 6)
             self.food = self._rand_empty_cell()
         else:
             self.snake.pop()  # remove tail
+
+    def _end_game(self):
+        self.game_over = True
+        if self.score > self.high_score:
+            self.high_score = self.score
+            # persist immediately
+            try:
+                snake_high_score.value = self.high_score
+                save_params()
+            except Exception as _e:
+                # ignore persistence errors; gameplay still fine
+                pass
 
     async def _loop(self):
         try:
@@ -790,36 +814,58 @@ class SnakeScreen(Screen):
             return
 
     # ---------- Screen API ----------
+    def _draw_hud(self):
+        # Clear HUD row
+        self.oled.fill_rect(0, 0, self.oled.width, self.HUD_H, 0)
+        # Text: SCORE and HI
+        wri6.set_textpos(self.oled, 0, 0)
+        wri6.printstring("SCORE:{:d}".format(self.score))
+        # right-justified HI
+        hi_txt = "HI:{:d}".format(self.high_score)
+        x_hi = self.oled.width - wri6.stringlen(hi_txt)
+        wri6.set_textpos(self.oled, 0, x_hi)
+        wri6.printstring(hi_txt)
+
     def render(self):
         self.oled.fill(0)
 
-        # draw food
+        # HUD first
+        self._draw_hud()
+
+        # draw food (offset by HUD height)
         fx, fy = self.food
-        self.oled.fill_rect(fx*self.CELL, fy*self.CELL, self.CELL, self.CELL, 1)
+        self.oled.fill_rect(fx*self.CELL, self.GRID_Y0 + fy*self.CELL, self.CELL, self.CELL, 1)
 
         # draw snake
-        # head thicker (filled), body outlined for contrast
         for i, (x, y) in enumerate(self.snake):
-            px, py = x*self.CELL, y*self.CELL
+            px, py = x*self.CELL, self.GRID_Y0 + y*self.CELL
             if i == 0:
                 self.oled.fill_rect(px, py, self.CELL, self.CELL, 1)
             else:
                 self.oled.rect(px, py, self.CELL, self.CELL, 1)
 
-        # HUD (score / state)
-        # (small font so it doesn’t obstruct much)
-        wri6.set_textpos(self.oled, 0, 0)
-        if self.game_over:
-            wri6.printstring("SCORE:{}  GAME OVER".format(self.score))
-        elif self.paused:
-            wri6.printstring("SCORE:{}  PAUSED".format(self.score))
-        else:
-            wri6.printstring("SCORE:{}".format(self.score))
+        # overlays
+        if self.paused:
+            self._overlay_center("PAUSED")
+        elif self.game_over:
+            self._overlay_center("GAME OVER  SELECT=Restart")
 
         self.oled.show()
 
+    def _overlay_center(self, text):
+        # small centered message (doesn't need fonts bigger than 6)
+        text_w = wri6.stringlen(text)
+        x = (self.oled.width - text_w) // 2
+        y = self.GRID_Y0 + (self.GRID_H*self.CELL)//2 - (wri6.font.height()//2)
+        # simple backdrop box for readability
+        pad = 2
+        self.oled.fill_rect(x - pad, y - pad, text_w + 2*pad, wri6.font.height() + 2*pad, 0)
+        self.oled.rect(x - pad, y - pad, text_w + 2*pad, wri6.font.height() + 2*pad, 1)
+        wri6.set_textpos(self.oled, y, x)
+        wri6.printstring(text)
+
     async def handle_button(self, btn):
-        # turning always allowed during play
+        # turning while active
         if not self.game_over and not self.paused:
             if btn == BTN_NEXT:
                 self._turn_right()
@@ -828,17 +874,15 @@ class SnakeScreen(Screen):
 
         if btn == BTN_SELECT:
             if self.game_over:
-                # restart
-                self.__init__(self.oled)  # re-init safely
+                # restart fresh
+                self.__init__(self.oled)
                 return self
             else:
-                # toggle pause
                 self.paused = not self.paused
                 self.render()
                 return self
 
         if btn == BTN_BACK:
-            # exit to menu
             self.running = False
             try:
                 if self._task:
@@ -848,7 +892,6 @@ class SnakeScreen(Screen):
             return MenuScreen(self.oled)
 
         return self
-
 
 # -----------------------
 # Menu screen
