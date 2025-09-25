@@ -809,6 +809,7 @@ def led_eff_startup(np, oldstate):
     else:
         return None
 
+
 def led_eff_autocycle(np, oldstate):
     """
     Automatically cycles through all effects every minute.
@@ -831,6 +832,35 @@ def led_eff_autocycle(np, oldstate):
     return state
 
 
+def led_eff_rainbow_comet(np, oldstate):
+    """
+    A comet that runs around the ring while its color cycles through the rainbow.
+    The trail fades naturally, preserving past hues for a multicolor tail.
+    """
+    # state keeps a sub-pixel position and a hue
+    state = oldstate or {"pos": 0.0, "hue": 0}
+
+    # Where's the head right now?
+    head_idx = int(state["pos"]) % len(np)
+
+    # Fade existing LEDs slightly to create a tail
+    # Faster speed -> slightly less fade; slower speed -> more persistence
+    fade_coeff = 0.5 + ((led_speed.maxval - led_speed.value) / led_speed.maxval * 0.4)
+    for i in range(len(np)):
+        r, g, b = np[i]
+        np[i] = (int(r * fade_coeff), int(g * fade_coeff), int(b * fade_coeff))
+
+    # Set the head with the current rainbow hue
+    rgb = hsv_to_rgb(state["hue"], led_sat.value/100, led_brightness.value/100)
+    np[head_idx] = rgb
+
+    # Advance position and hue based on Speed
+    state["pos"] += led_speed.value / 100     # movement per frame
+    state["hue"] = (state["hue"] + max(1, int(led_speed.value / 10))) % 360
+
+    return state
+
+
 async def neopixel_task(np):
     global led_effect
     global led_effects
@@ -841,6 +871,7 @@ async def neopixel_task(np):
                    ("Rainbow", led_eff_rainbow),
                    ("Breathe", led_eff_breathe),
                    ("Comet", led_eff_comet),
+                   ("Rainbow Comet", led_eff_rainbow_comet),
                    ("Cycle_All", led_eff_autocycle)]
 
     while True:
