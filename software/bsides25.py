@@ -846,13 +846,6 @@ class SnakeScreen(Screen):
         # HUD
         self._draw_hud()
 
-        # borders around playfield
-        x0 = 0
-        y0 = self.GRID_Y0
-        w = self.GRID_W * self.CELL
-        h = self.GRID_H * self.CELL
-        self.oled.rect(x0, y0, w, h, 1)
-
         # food (offset by HUD)
         fx, fy = self.food
         self.oled.fill_rect(fx*self.CELL, self.GRID_Y0 + fy*self.CELL, self.CELL, self.CELL, 1)
@@ -871,6 +864,18 @@ class SnakeScreen(Screen):
             self._overlay_center("PAUSED")
         elif self.game_over:
             self._overlay_center("GAME OVER  SELECT=Restart")
+
+        # --- draw playfield borders LAST so they stay visible ---
+        y_top = self.GRID_Y0
+        y_bot = self.GRID_Y0 + self.GRID_H * self.CELL - 1
+        x_left = 0
+        x_right = self.oled.width - 1
+
+        # top border already drawn in _draw_hud() at y = self.HUD_H - 1
+        # left / right / bottom:
+        self.oled.vline(x_left,  y_top, y_bot - y_top + 1, 1)
+        self.oled.vline(x_right, y_top, y_bot - y_top + 1, 1)
+        self.oled.hline(0, y_bot, self.oled.width, 1)
 
         self.oled.show()
 
