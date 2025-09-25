@@ -108,6 +108,10 @@ params = {
     "Light_effect" : led_effect
 }
 
+# --- Snake high score param (persistent in params.json) ---
+snake_high_score = Parameter("SnakeHighScore", 0, 9999)
+params["SnakeHighScore"] = snake_high_score
+
 FILENAME = "params.json"
 
 def save_params():
