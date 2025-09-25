@@ -2,7 +2,21 @@
 
 ## Hardware
 
-ESP32-C3FH4 (4MB flash)
+ESP32-C3FH4 (4MB flash) with WiFi and Bluetooth
+
+128x64 px OLED display (SSD1306)
+
+16 WS2812B (Neopixel compatible) LEDs
+
+USB-C for flashing/charging
+
+[Schematics](./hardware/BSides_2025_badge_v1.1_schematics.pdf)
+
+## Software
+
+The code in `software` is written in MicroPython and loaded onto the badge via USB-C connector.
+
+Update the code by uploading via `mpremote` or directly via some IDE like [Thonny](https://thonny.org/).
 
 ## Device preparation
 
