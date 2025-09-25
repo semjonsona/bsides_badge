@@ -809,6 +809,28 @@ def led_eff_startup(np, oldstate):
     else:
         return None
 
+def led_eff_autocycle(np, oldstate):
+    """
+    Automatically cycles through all effects every minute.
+    Reuse the existing led_effect functions one by one.
+    """
+    state = oldstate or {"idx": 1, "timer": time.ticks_ms(), "inner": None}
+    now = time.ticks_ms()
+
+    # every 60 seconds go to next effect (skip index 0 = Off)
+    if time.ticks_diff(now, state["timer"]) > 60_000:
+        state["idx"] += 1
+        if state["idx"] >= len(led_effects):
+            state["idx"] = 1        # wrap around, stay above 0
+        state["timer"] = now
+        state["inner"] = None       # reset inner effect state
+
+    # run the current inner effect
+    effect_fn = led_effects[state["idx"]][1]
+    state["inner"] = effect_fn(np, state["inner"])
+    return state
+
+
 async def neopixel_task(np):
     global led_effect
     global led_effects
@@ -818,7 +840,9 @@ async def neopixel_task(np):
     led_effects = [("Off", led_eff_off),
                    ("Rainbow", led_eff_rainbow),
                    ("Breathe", led_eff_breathe),
-                   ("Comet", led_eff_comet)]
+                   ("Comet", led_eff_comet),
+                   ("Cycle_All", led_eff_autocycle)]
+
     while True:
         if led_startup == True:
             t = led_eff_startup(np, t)
@@ -927,6 +951,7 @@ async def inactivity_task(oled):
                 show_bsides_logo(oled)
             else:
                 show_username(oled, USERNAME)
+
 
 # -----------------------
 # Main
