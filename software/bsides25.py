@@ -135,11 +135,7 @@ def load_params():
 # Username and ID
 # -----------------------
 def load_username():
-    try:
-        with open("yourname.txt") as f:
-            return f.read().strip() or None
-    except OSError:
-        return None
+    return "Semjon/Sona Kravtsenko"
 
 USERNAME = load_username()
 
@@ -1157,6 +1153,27 @@ def led_eff_rainbow(np, oldstate):
         np[i] = hsv_to_rgb(pixel_hue, led_sat.value/100, led_brightness.value/100)
     return (pos + led_speed.value/10) % 360
 
+def led_eff_rainbow2(np, oldstate):
+    """Trans flag"""
+    pos = oldstate or 0
+    n = len(np)
+
+    # Define flag colors (hue, saturation)
+    white = (0, 0)
+    pink = (348, led_sat.value / 100)
+    cyan = (197, led_sat.value / 100)
+    cls = [cyan, pink, white, pink, cyan, pink, white, pink]  # 8 bands
+
+    for i in range(n):
+        # Determine which of the 8 bands this LED is in
+        band_idx = (i * len(cls) // n + int(pos * len(cls) / 360)) % len(cls)
+        hue, sat = cls[band_idx]
+        np[i] = hsv_to_rgb(hue, sat, led_brightness.value / 100)
+
+    # advance rotation
+    return (pos + led_speed.value / 10) % 360
+
+
 def led_eff_breathe(np, oldstate):
     """All LEDs smoothly brighten and dim"""
     br, d = oldstate or (0, 1)
@@ -1385,6 +1402,7 @@ async def neopixel_task(np):
     prev_effect = 0
     led_effects = [("Off", led_eff_off),
                    ("Rainbow", led_eff_rainbow),
+                   ("Rainbow2", led_eff_rainbow2),
                    ("Breathe", led_eff_breathe),
                    ("Comet", led_eff_comet),
                    ("Rainbow Comet", led_eff_rainbow_comet),
