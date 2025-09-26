@@ -10,7 +10,6 @@ import uasyncio as asyncio
 import time, micropython
 from machine import Pin, I2C
 import ssd1306, neopixel
-import bsides_logo
 import math
 
 # Writer
@@ -43,12 +42,6 @@ REPEAT_DELAY = 500     # ms before auto-repeat starts
 REPEAT_INTERVAL = 10  # ms between repeats
 
 INACTIVITY_TIMEOUT = 5000  # ms
-LOGO_PERIOD = 3000  # ms
-
-SSID = "bsides-badge"
-PASSWORD = "bsidestallinn"
-URL = "https://badge.bsides.ee"
-URL_QR = "badge.bsides.ee"
 
 # -----------------------
 # Globals
@@ -134,54 +127,8 @@ def load_params():
 # -----------------------
 # Username and ID
 # -----------------------
-def load_username():
-    return "Semjon/Sona Kravtsenko"
+USERNAME = "Semjon/Sona Kravtsenko"
 
-USERNAME = load_username()
-
-ID_FILENAME = "id.txt"
-
-def is_valid_hex_id(s):
-    """Check if s is a 12-character hex string (6 bytes)."""
-    if len(s) != 12:
-        return False
-    try:
-        int(s, 16)
-        return True
-    except ValueError:
-        return False
-
-def load_or_create_device_id():
-    device_id = None
-    need_create = True
-
-    # try to read existing ID
-    try:
-        with open(ID_FILENAME, "r") as f:
-            hex_str = f.read().strip().upper()
-            if is_valid_hex_id(hex_str):
-                device_id = hex_str
-                need_create = False
-    except OSError:
-        pass  # file does not exist
-
-    if need_create:
-        # generate new 6-byte ID
-        random_bytes = bytes([urandom.getrandbits(8) for _ in range(6)])
-        hex_str = ubinascii.hexlify(random_bytes).decode().upper()
-        device_id = hex_str
-
-        # store to file
-        try:
-            with open(ID_FILENAME, "w") as f:
-                f.write(device_id)
-        except OSError:
-            pass  # handle write error
-
-    return device_id
-
-device_id = load_or_create_device_id()
-print("Device ID: {}".format(device_id))
 # -----------------------
 # Hardware init
 # -----------------------
@@ -775,19 +722,7 @@ class TextScreen(Screen):
 class AboutScreen(TextScreen):
     def __init__(self, oled):
         text = (
-            "BSides is a worldwide infosec event format, organized by the local infosec community in every city it is held. BSides Tallinn is organized by a non-profit core-team, volunteers and sponsors since 2021.\n\n"
-            "One core difference of all BSides events is that the talks on the stage are proposed by anyone and selected by a program committee - professionals representing the organizers, private companies, academia, the state, freelancers.\n\n"
-            "Talks, presentations, demos, proof-of-concepts across a very broad spectrum of infosec topics. All of the content is proposed by community members."
-        )
-        super().__init__(oled, wri6, text)
-
-
-class OurteamScreen(TextScreen):
-    def __init__(self, oled):
-        text = (
-            "Organizers: Hans, Silvia, Matis, Liisa, Johanna, Martti, Rainer, Kadi\n\n"
-            "Badge: Konstantin\n\n"
-            "Volunteers: Elis, Elle, Kristo, Merli, Hanna, Liam, Sten"
+            "BSides Tallinn 2025 badge, mod by Sona"
         )
         super().__init__(oled, wri6, text)
 
@@ -1085,11 +1020,8 @@ class SnakeScreen(Screen):
 
 class MenuScreen(Screen):
     items = [("About", AboutScreen),
-             ("Sponsors", SponsorsScreen),
-             ("Our team", OurteamScreen),
              ("Utils", UtilsScreen),
              ("Lights", LightsScreen),
-             ("Badge", BadgeScreen),
              ("Snake", SnakeScreen)]
 
     def __init__(self, oled):
@@ -1407,7 +1339,7 @@ async def neopixel_task(np):
                    ("Comet", led_eff_comet),
                    ("Rainbow Comet", led_eff_rainbow_comet),
                    ("Ping-Pong", led_eff_ping_pong),
-                   ("Dual Hue", led_eff_dual_hue),        
+                   ("Dual Hue", led_eff_dual_hue),
                    ("Aurora", led_eff_aurora),
                    ("Spiral Spin", led_eff_spiral_spin),
                    ("Cycle_All", led_eff_autocycle)]
@@ -1445,11 +1377,6 @@ async def ui_task(oled):
         # Only auto-render non-Snake screens
         if not isinstance(screen, SnakeScreen):
             screen.render()
-
-def show_bsides_logo(oled):
-    oled.fill(0)
-    oled.blit(bsides_logo.fb, 0, 0)
-    oled.show()
 
 def wrap_text(text, writer, max_width, max_height):
     line_height = writer.font.height()
@@ -1507,22 +1434,13 @@ def show_username(oled, name):
 
 async def inactivity_task(oled):
     global screen
-    last_toggle = time.ticks_ms()
-    showing_logo = True
 
     while True:
         await asyncio.sleep_ms(500)
-        inactive = (screen == None or isinstance(screen, MenuScreen)) and time.ticks_diff(time.ticks_ms(), last_activity) > INACTIVITY_TIMEOUT
+        inactive = (screen == None or isinstance(screen, MenuScreen)) and \
+                   time.ticks_diff(time.ticks_ms(), last_activity) > INACTIVITY_TIMEOUT
         if inactive:
-            now = time.ticks_ms()
-            if time.ticks_diff(now, last_toggle) >= LOGO_PERIOD:
-                showing_logo = not showing_logo
-                last_toggle = now
-
-            if showing_logo or not USERNAME:
-                show_bsides_logo(oled)
-            else:
-                show_username(oled, USERNAME)
+            show_username(oled, USERNAME)
 
 
 # -----------------------
@@ -1536,8 +1454,7 @@ async def main():
 
     setup_buttons()
     load_params()
-    show_bsides_logo(oled)
-    print("Username: {}".format(USERNAME))
+    print("Modded badge posts!")
 
     await asyncio.gather(ui_task(oled), inactivity_task(oled), neopixel_task(np))
 
