@@ -11,6 +11,8 @@ import time, micropython
 from machine import Pin, I2C
 import ssd1306, neopixel
 import math
+import gc
+import framebuf
 
 # Writer
 from writer.writer import Writer
@@ -447,18 +449,46 @@ class UtilsScreen(ListScreen):
 
 
 class GalleryScreen(Screen):
+    IMAGE_SIZE = 1024      # 128*64 bits / 8
+    COLOR_SIZE = 48        # 16 colors × 3 bytes
+    ENTRY_SIZE = IMAGE_SIZE + COLOR_SIZE
+
     def __init__(self, oled):
         super().__init__(oled)
         self.index = 0
-        import gallery
-        self.fbs = gallery.fbs
-        self.colors = gallery.colors
+        self.current_fb = None
+        self.current_colors = None
+
+        with open('gallery.bin', "rb") as f:
+            f.seek(0, 2)
+            self.num_images = f.tell() // self.ENTRY_SIZE
+        self.load_current_image()
+
+    def load_current_image(self):
+        if self.current_fb:
+            del self.current_fb
+            del self.current_colors
+            self.current_fb = None
+            self.current_colors = None
+            gc.collect()
+
+        with open('gallery.bin', "rb") as f:
+            f.seek(self.index * self.ENTRY_SIZE)
+            fb_data = bytearray(f.read(self.IMAGE_SIZE))
+            color_data = bytearray(f.read(self.COLOR_SIZE))
+        self.current_fb = framebuf.FrameBuffer(fb_data, 128, 64, framebuf.MONO_HLSB)
+        self.current_colors = tuple(
+            (color_data[i], color_data[i+1], color_data[i+2])
+            for i in range(0, self.COLOR_SIZE, 3)
+        )
 
     async def handle_button(self, btn):
         if btn == BTN_NEXT:
-            self.index = (self.index + 1) % len(self.fbs)
+            self.index = (self.index + 1) % self.num_images
+            self.load_current_image()
         elif btn == BTN_PREV:
-            self.index = (self.index - 1) % len(self.fbs)
+            self.index = (self.index - 1) % self.num_images
+            self.load_current_image()
         elif btn == BTN_BACK:
             return self.on_back()
         elif btn == BTN_SELECT:
@@ -467,7 +497,8 @@ class GalleryScreen(Screen):
 
     def render(self):
         self.oled.fill(0)
-        self.oled.blit(self.fbs[self.index], 0, 0)
+        if self.current_fb:
+            self.oled.blit(self.current_fb, 0, 0)
         self.oled.show()
 
     def on_select(self, index):
@@ -951,7 +982,8 @@ def led_eff_comet(np, oldstate, tail=5):
 
 def led_eff_galery(np, oldstate, screen: GalleryScreen):
     for i in range(len(np)):
-        np[i] = [int(u * led_brightness.value/100) for u in screen.colors[screen.index][i]]
+        if screen.current_colors:
+            np[i] = [int(u * led_brightness.value/100) for u in screen.current_colors[i]]
     return oldstate
 
 
@@ -1273,7 +1305,7 @@ async def main():
     global button_event, last_activity
     np = init_neopixels()
     button_event = asyncio.Event()
-    last_activity = time.ticks_ms()
+    last_activity = 0
 
     setup_buttons()
     load_params()
