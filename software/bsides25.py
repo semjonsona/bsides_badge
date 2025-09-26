@@ -445,225 +445,37 @@ class UtilsScreen(ListScreen):
         return MenuScreen(self.oled)
 
 
-# -----------------------
-# Badge screens
-# -----------------------
-class FetchNameScreen(Screen):
+
+class GalleryScreen(Screen):
     def __init__(self, oled):
         super().__init__(oled)
-        self.oled = oled
-        self.index = 0  # only one item
-        self.message = ""  # status message to display
-        self.wlan = None
-
-    async def handle_button(self, btn):
-        global username_lines, USERNAME
-        if btn == BTN_SELECT:
-            self.message = "Connecting WiFi..."
-            self.render()
-            try:
-                await self._connect_wifi()
-            except Exception as e:
-                self.message = f"WiFi error: {e}"
-                self.render()
-                return self
-
-            self.message = "Fetching name..."
-            self.render()
-            try:
-                name = await self._fetch_name()
-                self.message = f"Name: {name}"
-                self.render()
-                # Reset name lines and store to yourname.txt
-                USERNAME = name
-                username_lines = None
-                try:
-                    with open("yourname.txt", "w") as f:
-                        f.write(name)
-                except OSError as e:
-                    self.message += f" (save error: {e})"
-                    self.render()
-            except Exception as e:
-                self.message = f"Fetch error: {e}"
-                self.render()
-        elif btn == BTN_BACK:
-            await self._disconnect_wifi()
-            return BadgeScreen(oled)
-
-        return self
-
-    async def _connect_wifi(self):
-        if not self.wlan:
-            self.wlan = network.WLAN(network.STA_IF)
-        self.wlan.active(True)
-        if not self.wlan.isconnected():
-            self.wlan.connect(SSID, PASSWORD)
-            for _ in range(20):  # wait up to ~10 seconds
-                await asyncio.sleep(0.5)
-                if self.wlan.isconnected():
-                    return
-            raise RuntimeError("Could not connect to WiFi")
-
-    async def _disconnect_wifi(self):
-        if not self.wlan:
-            return
-        try:
-            self.wlan.disconnect()
-        except OSError:
-            pass
-        for _ in range(20):  # up to ~10 seconds
-            if not self.wlan.isconnected():
-                break
-            await asyncio.sleep(0.5)
-        self.wlan.active(False)
-
-    async def _fetch_name(self):
-        # parse URL
-        proto, rest = URL.split("://", 1)
-        if "/" in rest:
-            host, base_path = rest.split("/", 1)
-            base_path = "/" + base_path
-        else:
-            host, base_path = rest, ""
-
-        port = 443 if proto == "https" else 80
-
-        # resolve host
-        addr_info = socket.getaddrinfo(host, port)
-        addr = addr_info[0][-1]
-        s = socket.socket()
-        s.connect(addr)
-
-        if proto == "https":
-            s = ssl.wrap_socket(s, server_hostname=host)
-
-        path = base_path + "/getname/" + device_id
-        req = "GET {} HTTP/1.0\r\nHost: {}\r\n\r\n".format(path, host)
-        s.send(req.encode())
-
-        # read response
-        resp = b""
-        while True:
-            data = s.recv(512)
-            if not data:
-                break
-            resp += data
-        s.close()
-
-        # extract body
-        body = resp.split(b"\r\n\r\n", 1)[-1]
-        try:
-            data = json.loads(body)
-        except ValueError:
-            raise RuntimeError("Invalid JSON")
-
-        # Check for error
-        if "error" in data:
-            raise RuntimeError("{}".format(data.get("error","")))
-
-        # compare IDs case-insensitively
-        if data.get("id", "").upper() != device_id.upper() or "name" not in data:
-            raise RuntimeError("Unexpected response")
-
-        return data["name"].strip()
-
-    def render(self):
-        self.oled.fill(0)
-
-        # header = device_id
-        wri6.set_textpos(self.oled, 0, 0)
-        wri6.printstring("ID: {}".format(device_id))
-
-        if self.message:
-            y = wri6.font.height() + 2
-            wri6.set_textpos(self.oled, y, 0)
-            wri6.printstring(self.message)
-        else:
-            # menu item
-            y = wri6.font.height() + 2
-            wri6.set_textpos(self.oled, y, 0)
-            wri6.printstring(URL_QR)
-
-            # menu item
-            y += wri6.font.height() + 2
-            wri6.set_textpos(self.oled, y, 0)
-            wri6.printstring(">Fetch name")
-
-        self.oled.show()
-
-class CodeRepoScreen(Screen):
-    async def handle_button(self, btn):
-        if btn in (BTN_SELECT, BTN_BACK):
-            return BadgeScreen(oled)
-        return self
-
-    def render(self):
-        self.oled.fill(0)
-
-        wri10.set_textpos(self.oled, 0, 0)
-        wri10.printstring("Badge code git")
-
-        y = wri10.font.height() + 4
-        wri6.set_textpos(self.oled, y, 0)
-        wri6.printstring("github.com/ks000/ bsides_badge")
-
-        self.oled.show()
-
-badge_screens = [("Fetch Name", FetchNameScreen),
-                 ("Code git", CodeRepoScreen)]
-
-class BadgeScreen(ListScreen):
-    def __init__(self, oled):
-        super().__init__(oled, "Badge setup", badge_screens)
-
-    def on_select(self, index):
-        cls = badge_screens[index][1]
-        return cls(self.oled)
-
-    def on_back(self):
-        save_params()
-        return MenuScreen(self.oled)
-
-# -----------------------
-# Sponsors screens
-# -----------------------
-
-class SponsorsScreen(Screen):
-    def __init__(self, oled):
-        super().__init__(oled)
-
-        # Import logos dynamically
-        LOGO_FOLDER = "logos"
-        if LOGO_FOLDER not in sys.path:
-            sys.path.append(LOGO_FOLDER)
-        logo_files = sorted([f for f in os.listdir(LOGO_FOLDER) if f.endswith(".py")])
-
-        self.logos = []
-        self.current_logo = 0
-        for f in logo_files:
-            module_name = f[:-3]  # strip '.py'
-            mod = __import__(module_name)
-            if hasattr(mod, "fb"):
-                self.logos.append(mod.fb)
-            else:
-                print(f"Warning: {module_name} has no attribute 'fb'")
-
-        if not self.logos:
-            raise RuntimeError("No valid logos found!")
-
-    def render(self):
-        self.oled.fill(0)
-        self.oled.blit(self.logos[self.current_logo], 0, 0)
-        self.oled.show()
+        self.index = 0
+        import gallery
+        self.fbs = gallery.fbs
+        self.colors = gallery.colors
 
     async def handle_button(self, btn):
         if btn == BTN_NEXT:
-            self.current_logo = (self.current_logo + 1) % len(self.logos)
+            self.index = (self.index + 1) % len(self.fbs)
         elif btn == BTN_PREV:
-            self.current_logo = (self.current_logo - 1) % len(self.logos)
-        if btn == BTN_BACK:
-            return MenuScreen(self.oled)
+            self.index = (self.index - 1) % len(self.fbs)
+        elif btn == BTN_BACK:
+            return self.on_back()
+        elif btn == BTN_SELECT:
+            return self.on_select(self.index)
         return self
+
+    def render(self):
+        self.oled.fill(0)
+        self.oled.blit(self.fbs[self.index], 0, 0)
+        self.oled.show()
+
+    def on_select(self, index):
+        pass
+
+    def on_back(self):
+        return MenuScreen(self.oled)
+
 
 # -----------------------
 # Text screens
@@ -1022,7 +834,8 @@ class MenuScreen(Screen):
     items = [("About", AboutScreen),
              ("Utils", UtilsScreen),
              ("Lights", LightsScreen),
-             ("Snake", SnakeScreen)]
+             ("Snake", SnakeScreen),
+             ("Gallery", GalleryScreen)]
 
     def __init__(self, oled):
         super().__init__(oled)
@@ -1134,6 +947,12 @@ def led_eff_comet(np, oldstate, tail=5):
     np[head_idx] = hsv_to_rgb(led_hue.value, led_sat.value/100, led_brightness.value/100)
     
     return state + led_speed.value / 100
+
+
+def led_eff_galery(np, oldstate, screen: GalleryScreen):
+    for i in range(len(np)):
+        np[i] = [int(u * led_brightness.value/100) for u in screen.colors[screen.index][i]]
+    return oldstate
 
 
 def led_eff_startup(np, oldstate):
@@ -1330,6 +1149,7 @@ async def neopixel_task(np):
     global led_effect
     global led_effects
     global led_startup
+    global screen
     t = None
     prev_effect = 0
     led_effects = [("Off", led_eff_off),
@@ -1355,6 +1175,9 @@ async def neopixel_task(np):
                 prev_effect = led_effect.value
             if led_effect.value in range(len(led_effects)):
                 t = led_effects[led_effect.value][1](np, t)
+            if isinstance(screen, GalleryScreen):
+                t = led_eff_galery(np, t, screen)
+
         np.write()
         await asyncio.sleep_ms(int(1000/NEOPIXEL_FPS))
 
