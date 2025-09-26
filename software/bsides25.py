@@ -13,6 +13,7 @@ import ssd1306, neopixel
 import math
 import gc
 import framebuf
+import struct
 
 # Writer
 from writer.writer import Writer
@@ -527,6 +528,106 @@ class GalleryScreen(Screen):
         return MenuScreen(self.oled)
 
 
+class SongsScreen(ListScreen):
+    TITLE_SIZE = 64
+
+    def __init__(self, oled):
+        self.songs = self.read_songs()
+
+        super().__init__(oled, "Songs", self.songs)
+
+    def read_songs(self):
+        with open('songs.bin', "rb") as f:
+            songs = []
+            offset = 0
+            while True:
+                # read title
+                f.seek(offset)
+                title_bytes = f.read(self.TITLE_SIZE)
+                if not title_bytes or len(title_bytes) < self.TITLE_SIZE:
+                    break  # EOF
+                title = title_bytes.split(b'\0', 1)[0].decode()
+                offset += self.TITLE_SIZE
+
+                # read lyrics length
+                lyrics_length = struct.unpack("<I", f.read(4))[0]
+                offset += 4
+
+                # lyrics_offset is the current file offset
+                lyrics_offset = offset
+                offset += lyrics_length  # skip to next header
+
+                songs.append((title, (lyrics_offset, lyrics_length)))
+        return songs
+
+    def on_select(self, index):
+        # TODO
+        return SongScreen(self.oled, self.songs[self.index])
+
+    def on_back(self):
+        return MenuScreen(self.oled)
+
+
+class SongScreen(Screen):
+    RESOLUTION = 20  # ms
+
+    def __init__(self, oled, song):
+        super().__init__(oled)
+        self.lyrics = self.load_lyrics(song)
+        self.start_ms = time.ticks_ms()
+        self.lemma_i = 0
+
+    def load_lyrics(self, song):
+        with open('songs.bin', "rb") as f:
+            f.seek(song[1][0])
+            data = f.read(song[1][1])
+
+        lyrics = []
+        pos = 0
+        while pos < len(data):
+            if pos + 5 > len(data):
+                break  # not enough bytes for start/end/len
+            start_20ms, end_20ms, token_len = struct.unpack_from("<HHB", data, pos)
+            pos += 5
+            token_bytes = data[pos:pos + token_len]
+            lemma = token_bytes.decode()
+            pos += token_len
+            lyrics.append((lemma, start_20ms, end_20ms))
+        return lyrics
+
+    async def handle_button(self, btn):
+        if btn == BTN_NEXT:
+            pass
+        elif btn == BTN_PREV:
+            pass
+        elif btn == BTN_BACK:
+            return SongsScreen(self.oled)
+        elif btn == BTN_SELECT:
+            pass
+        return self
+
+
+async def lyrics_task(oled):
+    global screen
+    while True:
+        if not isinstance(screen, SongScreen):
+            await asyncio.sleep_ms(100)
+        else:
+            frame = time.ticks_diff(time.ticks_ms(), screen.start_ms) // screen.RESOLUTION
+            if screen.lyrics[screen.lemma_i][2] < frame:
+                screen.lemma_i += 1
+            if screen.lemma_i >= len(screen.lyrics):
+                screen.lemma_i = 0
+                screen.start_ms = time.ticks_ms()
+                continue
+            lemma, start, end = screen.lyrics[screen.lemma_i]
+            oled.fill(0)
+            if frame >= start and frame <= end:
+                wri20.set_textpos(oled, 17, 20)
+                wri20.printstring(lemma)
+            oled.show()
+            await asyncio.sleep_ms(20)
+
 # -----------------------
 # Text screens
 # -----------------------
@@ -885,7 +986,8 @@ class MenuScreen(Screen):
              ("Utils", UtilsScreen),
              ("Lights", LightsScreen),
              ("Snake", SnakeScreen),
-             ("Gallery", GalleryScreen)]
+             ("Gallery", GalleryScreen),
+             ("Songs", SongsScreen)]
 
     def __init__(self, oled):
         super().__init__(oled)
@@ -1330,7 +1432,7 @@ async def main():
     load_params()
     print("Modded badge posts!")
 
-    await asyncio.gather(ui_task(oled), inactivity_task(oled), neopixel_task(np))
+    await asyncio.gather(ui_task(oled), inactivity_task(oled), lyrics_task(oled), neopixel_task(np))
 
 try:
     asyncio.run(main())
