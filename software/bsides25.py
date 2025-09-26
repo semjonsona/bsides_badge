@@ -451,17 +451,22 @@ class UtilsScreen(ListScreen):
 class GalleryScreen(Screen):
     IMAGE_SIZE = 1024      # 128*64 bits / 8
     COLOR_SIZE = 48        # 16 colors × 3 bytes
-    ENTRY_SIZE = IMAGE_SIZE + COLOR_SIZE
+    TEXT_SIZE = 32
+    ENTRY_SIZE = IMAGE_SIZE + COLOR_SIZE + TEXT_SIZE
 
     def __init__(self, oled):
         super().__init__(oled)
         self.index = 0
         self.current_fb = None
         self.current_colors = None
+        self.current_text = ''
+        self.info_mode = False
 
         with open('gallery.bin', "rb") as f:
             f.seek(0, 2)
             self.num_images = f.tell() // self.ENTRY_SIZE
+            f.seek(self.num_images * self.ENTRY_SIZE)
+            self.base_info = bytearray(f.read()).decode()
         self.load_current_image()
 
     def load_current_image(self):
@@ -476,11 +481,13 @@ class GalleryScreen(Screen):
             f.seek(self.index * self.ENTRY_SIZE)
             fb_data = bytearray(f.read(self.IMAGE_SIZE))
             color_data = bytearray(f.read(self.COLOR_SIZE))
+            text_data = bytearray(f.read(self.TEXT_SIZE))
         self.current_fb = framebuf.FrameBuffer(fb_data, 128, 64, framebuf.MONO_HLSB)
         self.current_colors = tuple(
             (color_data[i], color_data[i+1], color_data[i+2])
             for i in range(0, self.COLOR_SIZE, 3)
         )
+        self.current_text = text_data.rstrip(b"\x00").decode()
 
     async def handle_button(self, btn):
         if btn == BTN_NEXT:
@@ -492,19 +499,31 @@ class GalleryScreen(Screen):
         elif btn == BTN_BACK:
             return self.on_back()
         elif btn == BTN_SELECT:
-            return self.on_select(self.index)
+            return self.on_select()
         return self
 
     def render(self):
         self.oled.fill(0)
-        if self.current_fb:
-            self.oled.blit(self.current_fb, 0, 0)
+        if self.info_mode:
+            wri6.set_textpos(self.oled, 0, 0)
+            wri6.printstring(self.current_text[:16])
+            wri6.set_textpos(self.oled, 12, 0)
+            wri6.printstring(self.current_text[16:])
+            wri6.set_textpos(self.oled, 30, 60)
+            wri6.printstring("{}/{}".format(self.index + 1, self.num_images))
+            wri6.set_textpos(self.oled, 50, 0)
+            wri6.printstring(self.base_info[16 * self.index: 16 * self.index + 16])
+        else:
+            if self.current_fb:
+                self.oled.blit(self.current_fb, 0, 0)
         self.oled.show()
 
-    def on_select(self, index):
-        pass
+    def on_select(self):
+        self.info_mode = not self.info_mode
+        return self
 
     def on_back(self):
+        self.info_mode = False
         return MenuScreen(self.oled)
 
 

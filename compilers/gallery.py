@@ -1,3 +1,4 @@
+import string
 from datetime import datetime
 import os
 from PIL import Image
@@ -6,6 +7,7 @@ from sklearn.cluster import KMeans
 
 IMAGE_SIZE = 1024  # 128*64 bits / 8
 COLOR_SIZE = 48  # 16 colors × 3 bytes
+TEXT_SIZE = 32
 
 if __name__ == '__main__':
     bb = bytearray()
@@ -24,9 +26,17 @@ if __name__ == '__main__':
 
         img = img.convert("1", dither=Image.FLOYDSTEINBERG)
 
+        fn = os.path.splitext(os.path.basename(fn))[0]
+        text = ''.join(c for c in fn if c in string.ascii_letters + string.digits + "_-,.+()/")
+        if len(text) > TEXT_SIZE:
+            text = text[:TEXT_SIZE // 2] + text[-TEXT_SIZE // 2:]
+        while len(text) < TEXT_SIZE:
+            text += '\0'
+
         bb.extend(np.frombuffer(img.tobytes(), dtype=np.uint8))
         bb.extend(cl.astype(np.uint8).tobytes())
-        assert len(bb) % (IMAGE_SIZE + COLOR_SIZE) == 0, fn
+        bb.extend(text.encode())
+        assert len(bb) % (IMAGE_SIZE + COLOR_SIZE + TEXT_SIZE) == 0, fn
 
-    bb.extend(f'# generated on {datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")}'.encode())
+    bb.extend(f'generated on {datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")}'.encode())
     open('gallery.bin', 'wb').write(bb)
