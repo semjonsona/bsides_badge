@@ -1162,11 +1162,11 @@ def led_eff_rainbow2(np, oldstate):
     white = (0, 0)
     pink = (348, led_sat.value / 100)
     cyan = (197, led_sat.value / 100)
-    cls = [cyan, pink, white, pink, cyan, pink, white, pink]  # 8 bands
+    cls = [cyan, cyan, pink, pink, white, white, pink, pink, cyan, cyan, pink, pink, white, white, pink]
 
     for i in range(n):
         # Determine which of the 8 bands this LED is in
-        band_idx = (i * len(cls) // n + int(pos * len(cls) / 360)) % len(cls)
+        band_idx = (i + int(pos / 30)) % len(cls)
         hue, sat = cls[band_idx]
         np[i] = hsv_to_rgb(hue, sat, led_brightness.value / 100)
 
