@@ -1,4 +1,7 @@
 compilers/pictures
 compilers/audio
+compilers/books
 gallery.bin
 songs.bin
+books.bin
+.idea

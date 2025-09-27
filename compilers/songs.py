@@ -36,7 +36,6 @@ if __name__ == '__main__':
             continue
         song_json = json.loads(open(AUDIO_DIR + '/' + fn, 'r').read())
         sb = bytearray()
-        flat = []
 
         for seg in song_json.get("segments", []):
             for w in seg.get("words", []):

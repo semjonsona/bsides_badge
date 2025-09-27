@@ -561,7 +561,6 @@ class SongsScreen(ListScreen):
         return songs
 
     def on_select(self, index):
-        # TODO
         return SongScreen(self.oled, self.songs[self.index])
 
     def on_back(self):
@@ -627,6 +626,49 @@ async def lyrics_task(oled):
                 wri20.printstring(lemma)
             oled.show()
             await asyncio.sleep_ms(20)
+
+
+class BooksScreen(ListScreen):
+    def __init__(self, oled, start=0, lenn=1<<30, title="Books"):
+        self.books = self.read_books(start, lenn)
+        super().__init__(oled, title, self.books)
+
+    def read_books(self, start, lenn):
+        entries = []
+        with open('books.bin', "rb") as f:
+            f.seek(start)
+            end = start + lenn
+            while f.tell() < end:
+                tt = f.read(1)
+                if len(tt) == 0:
+                    break
+                name_length = struct.unpack("<I", f.read(4))[0]
+                name = f.read(name_length)
+                content_length = struct.unpack("<I", f.read(4))[0]
+                content_pos = f.tell()
+                entries.append((name.strip(b'\0').decode(), tt, content_pos, content_length))
+                f.seek(content_length, 1)  # jump from current position
+        return entries
+
+    def read_text(self, start, lenn):
+        with open('books.bin', "rb") as f:
+            f.seek(start)
+            txt = f.read(lenn).decode()
+            return txt
+
+    def on_select(self, index):
+        name, tt, start, lenn = self.books[index]
+        if tt == b'0':
+            return BooksScreen(self.oled, start, lenn, name)
+        elif tt == b'1':
+            text = self.read_text(start, lenn)
+            return TextScreen(self.oled, wri6, text)
+        else:
+            return MenuScreen(self.oled)
+
+    def on_back(self):
+        return MenuScreen(self.oled)
+
 
 # -----------------------
 # Text screens
@@ -987,7 +1029,8 @@ class MenuScreen(Screen):
              ("Lights", LightsScreen),
              ("Snake", SnakeScreen),
              ("Gallery", GalleryScreen),
-             ("Songs", SongsScreen)]
+             ("Songs", SongsScreen),
+             ("Books", BooksScreen)]
 
     def __init__(self, oled):
         super().__init__(oled)
