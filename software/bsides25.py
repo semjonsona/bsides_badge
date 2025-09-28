@@ -128,9 +128,12 @@ def load_params():
         pass
 
 # -----------------------
-# Username and ID
+# Username
 # -----------------------
 USERNAME = "Semjon/Sona Kravtsenko"
+if 'USERNAME.txt' in os.listdir():
+    with open('USERNAME.txt', "r") as f:
+        USERNAME = f.read()
 
 # -----------------------
 # Hardware init
@@ -568,13 +571,14 @@ class SongsScreen(ListScreen):
 
 
 class SongScreen(Screen):
-    RESOLUTION = 20  # ms
+    RESOLUTION = 20  # ms per frame
 
     def __init__(self, oled, song):
         super().__init__(oled)
         self.lyrics = self.load_lyrics(song)
         self.start_ms = time.ticks_ms()
-        self.lemma_i = 0
+        self.lemma_i = -1
+        self.skip_signal = False
 
     def load_lyrics(self, song):
         with open('songs.bin', "rb") as f:
@@ -583,15 +587,15 @@ class SongScreen(Screen):
 
         lyrics = []
         pos = 0
+        current_fr = 0
         while pos < len(data):
-            if pos + 5 > len(data):
-                break  # not enough bytes for start/end/len
-            start_20ms, end_20ms, token_len = struct.unpack_from("<HHB", data, pos)
-            pos += 5
+            duration_fr, token_len = struct.unpack_from("<BB", data, pos)
+            pos += 2
             token_bytes = data[pos:pos + token_len]
             lemma = token_bytes.decode()
             pos += token_len
-            lyrics.append((lemma, start_20ms, end_20ms))
+            lyrics.append((lemma, current_fr, current_fr + duration_fr))
+            current_fr += duration_fr
         return lyrics
 
     async def handle_button(self, btn):
@@ -602,7 +606,7 @@ class SongScreen(Screen):
         elif btn == BTN_BACK:
             return SongsScreen(self.oled)
         elif btn == BTN_SELECT:
-            pass
+            self.skip_signal = True
         return self
 
 
@@ -613,16 +617,29 @@ async def lyrics_task(oled):
             await asyncio.sleep_ms(100)
         else:
             frame = time.ticks_diff(time.ticks_ms(), screen.start_ms) // screen.RESOLUTION
+            old_lemma_i = screen.lemma_i
+            screen.lemma_i = max(0, screen.lemma_i)
             while screen.lemma_i > 0 and frame <= screen.lyrics[screen.lemma_i - 1][2]:
                 screen.lemma_i -= 1
             while screen.lemma_i < len(screen.lyrics) - 1 and screen.lyrics[screen.lemma_i][2] < frame:
                 screen.lemma_i += 1
+            if screen.skip_signal:
+                screen.skip_signal = False
+                while screen.lemma_i < len(screen.lyrics) - 1:
+                    if len(screen.lyrics[screen.lemma_i][0]) == 0:
+                        screen.lemma_i += 1
+                    else:
+                        break
+                screen.start_ms = time.ticks_ms() - screen.RESOLUTION * screen.lyrics[screen.lemma_i][1]
             lemma, start, end = screen.lyrics[screen.lemma_i]
-            oled.fill(0)
-            if start <= frame <= end:
-                wri20.set_textpos(oled, 17, 10)
-                wri20.printstring(lemma)
-            oled.show()
+            if old_lemma_i != screen.lemma_i:
+                oled.fill(0)
+                if start <= frame <= end:
+                    wri20.set_textpos(oled, 17, 10)
+                    wri20.printstring(lemma)
+
+                    print((' ' * ((start >> 1 & 7) % 5)) + ('🎶' if start & 1 else '🎵') + lemma)
+                oled.show()
             await asyncio.sleep_ms(20)
 
 
@@ -733,7 +750,12 @@ class TextScreen(Screen):
 class AboutScreen(TextScreen):
     def __init__(self, oled):
         text = (
-            "BSides Tallinn 2025 badge, mod by Sona"
+            "BSides Tallinn 2025 badge.\n"
+            "Mod by Sona.\n"
+            "Awesome pictures, songs and books by the MLP creators and the fandom.\n"
+            "Some light effects contributed by boxmein.\n"
+            "Main colors extraction by sklearn's KMeans.\n"
+            "Lyrics recognition and alignment by Whisper.\n"
         )
         super().__init__(oled, wri6, text)
 
@@ -1559,13 +1581,16 @@ def show_username(oled, name):
 
 async def inactivity_task(oled):
     global screen
+    global last_activity
 
+    starting = True
     while True:
-        await asyncio.sleep_ms(500)
-        inactive = (screen == None or isinstance(screen, MenuScreen)) and \
+        inactive = (screen is None or isinstance(screen, MenuScreen)) and \
                    time.ticks_diff(time.ticks_ms(), last_activity) > INACTIVITY_TIMEOUT
-        if inactive:
+        if inactive or starting:
+            starting = False
             show_username(oled, USERNAME)
+        await asyncio.sleep_ms(500)
 
 
 # -----------------------
@@ -1581,7 +1606,7 @@ async def main():
     load_params()
     print("Modded badge posts!")
 
-    await asyncio.gather(ui_task(oled), inactivity_task(oled), lyrics_task(oled), neopixel_task(np))
+    await asyncio.gather(inactivity_task(oled), ui_task(oled), lyrics_task(oled), neopixel_task(np))
 
 try:
     asyncio.run(main())
