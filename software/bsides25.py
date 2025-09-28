@@ -437,21 +437,6 @@ class StopwatchScreen(Screen):
     _paused_base = 0
 
 
-utils_screens = [("Stopwatch", StopwatchScreen)]
-
-class UtilsScreen(ListScreen):
-    def __init__(self, oled):
-        super().__init__(oled, "Utils", utils_screens)
-
-    def on_select(self, index):
-        cls = utils_screens[index][1]
-        return cls(self.oled)
-
-    def on_back(self):
-        return MenuScreen(self.oled)
-
-
-
 class GalleryScreen(Screen):
     IMAGE_SIZE = 1024      # 128*64 bits / 8
     COLOR_SIZE = 48        # 16 colors × 3 bytes
@@ -1047,18 +1032,30 @@ class SnakeScreen(Screen):
 
         return self
 
+utils_screens = [("Stopwatch", StopwatchScreen), ("Snake", SnakeScreen)]
+
+class UtilsScreen(ListScreen):
+    def __init__(self, oled):
+        super().__init__(oled, "Utils", utils_screens)
+
+    def on_select(self, index):
+        cls = utils_screens[index][1]
+        return cls(self.oled)
+
+    def on_back(self):
+        return MenuScreen(self.oled)
+
 # -----------------------
 # Menu screen
 # -----------------------
 
 class MenuScreen(Screen):
     items = [("About", AboutScreen),
-             ("Utils", UtilsScreen),
              ("Lights", LightsScreen),
-             ("Snake", SnakeScreen),
              ("Gallery", GalleryScreen),
              ("Songs", SongsScreen),
-             ("Books", BooksScreen)]
+             ("Books", BooksScreen),
+             ("Utils", UtilsScreen)]
 
     def __init__(self, oled):
         super().__init__(oled)
@@ -1168,7 +1165,7 @@ def led_eff_comet(np, oldstate, tail=5):
         np[i] = tuple(int(x * fade_coeff) for x in np[i])
     # light the comet head
     np[head_idx] = hsv_to_rgb(led_hue.value, led_sat.value/100, led_brightness.value/100)
-    
+
     return state + led_speed.value / 100
 
 
@@ -1284,7 +1281,7 @@ def led_eff_startup(np, oldstate):
     for i in range(len(np)):
         rgb = rgb_on if (i <= head) == (phase == 0) else rgb_off
         np[i] = rgb
-    
+
     if head < len(np) - 1:
         return (head + 1, phase)
     elif phase == 0:
