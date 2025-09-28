@@ -610,20 +610,23 @@ async def lyrics_task(oled):
                 screen.lemma_i += 1
             if screen.skip_signal:
                 screen.skip_signal = False
-                while screen.lemma_i < len(screen.lyrics) - 1:
-                    if len(screen.lyrics[screen.lemma_i][0]) == 0:
+                old_lemma_i = -1
+                stage = 0
+                while screen.lemma_i < len(screen.lyrics) - 2:
+                    if (len(screen.lyrics[screen.lemma_i][0]) == 0) == stage:
                         screen.lemma_i += 1
                     else:
-                        break
+                        stage += 1
+                        if stage == 2:
+                            break
                 screen.start_ms = time.ticks_ms() - screen.RESOLUTION * screen.lyrics[screen.lemma_i][1]
             lemma, start, end = screen.lyrics[screen.lemma_i]
             if old_lemma_i != screen.lemma_i:
                 oled.fill(0)
-                if start <= frame <= end:
-                    wri20.set_textpos(oled, 17, 10)
-                    wri20.printstring(lemma)
+                wri20.set_textpos(oled, 17, 10)
+                wri20.printstring(lemma)
 
-                    print((' ' * ((start >> 1 & 7) % 5)) + ('🎶' if start & 1 else '🎵') + lemma)
+                print((' ' * ((start >> 1 & 7) % 5)) + ('🎶' if start & 1 else '🎵') + lemma)
                 oled.show()
             await asyncio.sleep_ms(20)
 
@@ -726,6 +729,9 @@ class TextScreen(Screen):
         elif btn == BTN_PREV and self.offset > 0:
             self.offset -= 1
         elif btn == BTN_BACK:
+            del self.text
+            self.text = None
+            gc.collect()
             if self.back_screen == None:
                 return MenuScreen(self.oled)
             else:
@@ -736,8 +742,9 @@ class AboutScreen(TextScreen):
     def __init__(self, oled):
         text = (
             "BSides Tallinn 2025 badge.\n"
-            "Mod by Sona.\n"
-            "Awesome pictures, songs and books by the MLP creators and the fandom.\n"
+            "Mod by Sona.\n\n"
+            #"Did you get the bundle with the awesome pictures, songs and books by the MLP creators and the fandom?\n"
+            "Upstream: github.com/ks000/ bsides_badge\n"
             "Some light effects contributed by boxmein.\n"
             "Main colors extraction by sklearn's KMeans.\n"
             "Lyrics recognition and alignment by Whisper.\n"
