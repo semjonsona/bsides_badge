@@ -1149,6 +1149,81 @@ def led_eff_comet(np, oldstate, tail=5):
     
     return state + led_speed.value / 100
 
+
+def led_eff_boxmein(np, oldstate):
+    """custom effect"""
+    state = oldstate or 0
+    ln = len(np)
+    head_idx = int(state / 100) % (ln * 3)
+    red = hsv_to_rgb(0, led_sat.value / 100, led_brightness.value / 100)
+    green = hsv_to_rgb(110, led_sat.value / 100, led_brightness.value / 100)
+    blue = hsv_to_rgb(225, led_sat.value / 100, led_brightness.value / 100)
+
+    np[head_idx % ln] = red if head_idx < ln else green if head_idx < 2 * ln else blue
+
+    return state + led_speed.value
+
+
+def led_eff_ment(np, oldstate, tail=5):
+    """custom effect"""
+    state = oldstate or 0
+    red = 0
+    blue = 225
+
+    for i in range(len(np)):
+        np[i] = hsv_to_rgb(
+            red if (state % 1000) < 500 else blue,
+            led_sat.value / 100,
+            led_brightness.value / 100
+        )
+
+    return state + led_speed.value
+
+
+def led_eff_ment2(np, oldstate, tail=5):
+    """custom effect"""
+    state = oldstate or 0
+    red = 0
+    blue = 225
+
+    for i in range(len(np)):
+        c1 = state % 6 < 3
+        c2 = (state + i) % 4 < 1
+
+        color = (0, 0, 0)
+        if c1:
+            color = hsv_to_rgb(red, led_sat.value / 100, led_brightness.value / 100)
+        if c2:
+            color = hsv_to_rgb(blue, led_sat.value / 100, led_brightness.value / 100)
+
+        np[i] = color
+
+    return state + led_speed.value / 100
+
+
+def led_eff_jumppa(np, oldstate, tail=5):
+    """custom effect"""
+    green = 112
+    blue = 225
+    state = oldstate or 0
+    coef = int(led_speed.value / 10)  # ? led_speed.maxval ?
+
+    prev_state = state - 1 if state - 1 >= 0 else len(np) - 1
+
+    idx1 = int(prev_state * coef) % len(np)
+    idx2 = len(np) - 1 - (int(prev_state * coef) % len(np))
+
+    np[idx1] = (0, 0, 0)
+    np[idx2] = (0, 0, 0)
+
+    idx1 = int(state * coef) % len(np)
+    idx2 = len(np) - 1 - (int(state * coef) % len(np))
+
+    np[idx1] = hsv_to_rgb(green, led_sat.value / 100, led_brightness.value / 100)
+    np[idx2] = hsv_to_rgb(blue, led_sat.value / 100, led_brightness.value / 100)
+
+    return state + 1
+
 SRGB_LUT = [0]*256
 SRGB_LUT_BR = 0
 
@@ -1386,8 +1461,11 @@ async def neopixel_task(np):
                    ("Dual Hue", led_eff_dual_hue),
                    ("Aurora", led_eff_aurora),
                    ("Spiral Spin", led_eff_spiral_spin),
-                   ("Cycle_All", led_eff_autocycle)]
-
+                   ("Cycle_All", led_eff_autocycle),
+                   ("ment", led_eff_ment),
+                   ("ment2", led_eff_ment2),
+                   ("boxmein", led_eff_boxmein),
+                   ("jumppa", led_eff_jumppa)]
     while True:
         if led_startup == True:
             t = led_eff_startup(np, t)
