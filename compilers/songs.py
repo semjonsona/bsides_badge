@@ -2,11 +2,22 @@ from datetime import datetime
 import os
 import whisper
 import json
-import string
 import struct
+import re
+
+import util
 
 RESOLUTION = 20  # timestamp, ms
 TITLE_SIZE = 64
+
+def song_name(fn):
+    base = re.sub(r"_words.*\.txt$", "", fn)
+    base = os.path.splitext(base)[0]
+    base = re.sub(r"\(feat[^)]*\)", "", base, flags=re.IGNORECASE).strip()
+    name = base.split("-")[-1].strip()
+    print(f'Song name: {name}')
+    return name
+
 
 if __name__ == '__main__':
     AUDIO_DIR = "audio"
@@ -41,18 +52,14 @@ if __name__ == '__main__':
             for w in seg.get("words", []):
                 start_20ms = int(w["start"] / 0.02)
                 end_20ms = int(w["end"] / 0.02)
-                token = w["word"]
-                token = ''.join(c for c in token if c in string.ascii_letters + string.digits + "_-,.+()/")
-                token_bytes = w["word"].encode("utf-8")
-                token_len = len(token_bytes)
-                if token_len > 255:
-                    token_bytes = token_bytes[:255]
-                    token_len = 255
-
+                token = util.prepare_text(w["word"]).encode("utf-8")
+                token_len = len(token)
+                assert token_len < 256
                 sb += struct.pack("<HHB", start_20ms, end_20ms, token_len)
-                sb += token_bytes
-        goodfn = ''.join(c for c in fn if c in string.ascii_letters + string.digits + "_-,.+()/")
-        bb += goodfn[:TITLE_SIZE].encode().ljust(TITLE_SIZE, b'\0')
+                sb += token
+        goodsn = util.prepare_text(song_name(fn))
+        bb += goodsn[:TITLE_SIZE].encode().ljust(TITLE_SIZE, b'\0')
         bb += struct.pack("<I", len(sb))
         bb += sb
+    print('songs.bin size: ', len(bb))
     open('songs.bin', 'wb').write(bb)

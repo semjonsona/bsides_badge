@@ -596,9 +596,9 @@ class SongScreen(Screen):
 
     async def handle_button(self, btn):
         if btn == BTN_NEXT:
-            pass
+            self.start_ms -= 100
         elif btn == BTN_PREV:
-            pass
+            self.start_ms += 100
         elif btn == BTN_BACK:
             return SongsScreen(self.oled)
         elif btn == BTN_SELECT:
@@ -613,23 +613,22 @@ async def lyrics_task(oled):
             await asyncio.sleep_ms(100)
         else:
             frame = time.ticks_diff(time.ticks_ms(), screen.start_ms) // screen.RESOLUTION
-            if screen.lyrics[screen.lemma_i][2] < frame:
+            while screen.lemma_i > 0 and frame <= screen.lyrics[screen.lemma_i - 1][2]:
+                screen.lemma_i -= 1
+            while screen.lemma_i < len(screen.lyrics) - 1 and screen.lyrics[screen.lemma_i][2] < frame:
                 screen.lemma_i += 1
-            if screen.lemma_i >= len(screen.lyrics):
-                screen.lemma_i = 0
-                screen.start_ms = time.ticks_ms()
-                continue
             lemma, start, end = screen.lyrics[screen.lemma_i]
             oled.fill(0)
-            if frame >= start and frame <= end:
-                wri20.set_textpos(oled, 17, 20)
+            if start <= frame <= end:
+                wri20.set_textpos(oled, 17, 10)
                 wri20.printstring(lemma)
             oled.show()
             await asyncio.sleep_ms(20)
 
 
 class BooksScreen(ListScreen):
-    def __init__(self, oled, start=0, lenn=1<<30, title="Books"):
+    def __init__(self, oled, start=0, lenn=1<<30, title="Books", back=None):
+        self.back = back
         self.books = self.read_books(start, lenn)
         super().__init__(oled, title, self.books)
 
@@ -659,14 +658,16 @@ class BooksScreen(ListScreen):
     def on_select(self, index):
         name, tt, start, lenn = self.books[index]
         if tt == b'0':
-            return BooksScreen(self.oled, start, lenn, name)
+            return BooksScreen(self.oled, start, lenn, name, self)
         elif tt == b'1':
             text = self.read_text(start, lenn)
-            return TextScreen(self.oled, wri6, text)
+            return TextScreen(self.oled, wri6, text, self)
         else:
             return MenuScreen(self.oled)
 
     def on_back(self):
+        if self.back != None:
+            return self.back
         return MenuScreen(self.oled)
 
 
@@ -675,7 +676,7 @@ class BooksScreen(ListScreen):
 # -----------------------
 
 class TextScreen(Screen):
-    def __init__(self, oled, writer, text):
+    def __init__(self, oled, writer, text, back_screen=None):
         super().__init__(oled)
         self.wri = writer
 
@@ -686,6 +687,8 @@ class TextScreen(Screen):
         self.line_height = self.wri.font.height()
         self.rows = oled.height // self.line_height
         self.offset = 0
+
+        self.back_screen = back_screen
 
     def _wrap_text(self, text):
         lines = []
@@ -721,7 +724,10 @@ class TextScreen(Screen):
         elif btn == BTN_PREV and self.offset > 0:
             self.offset -= 1
         elif btn == BTN_BACK:
-            return MenuScreen(self.oled)
+            if self.back_screen == None:
+                return MenuScreen(self.oled)
+            else:
+                return self.back_screen
         return self
 
 class AboutScreen(TextScreen):
@@ -1143,11 +1149,33 @@ def led_eff_comet(np, oldstate, tail=5):
     
     return state + led_speed.value / 100
 
+SRGB_LUT = [0]*256
+SRGB_LUT_BR = 0
+
+def build_srgb_to_linear_lut(brightness_percent):
+    b = max(0.0, min(1.0, brightness_percent / 100.0))
+    lut = [0]*256
+    for x in range(256):
+        v = x / 255.0
+        # sRGB -> linear
+        if v <= 0.04045:
+            lin = v / 12.92
+        else:
+            lin = ((v + 0.055) / 1.055) ** 2.4
+        # apply brightness in linear domain
+        lin_scaled = min(1.0, lin * b)
+        # quantize to 8-bit for neopixel (linear domain)
+        lut[x] = int(round(lin_scaled * 255.0))
+    return lut
 
 def led_eff_galery(np, oldstate, screen: GalleryScreen):
+    global SRGB_LUT, SRGB_LUT_BR
+    if SRGB_LUT_BR != led_brightness.value:
+        SRGB_LUT = build_srgb_to_linear_lut(led_brightness.value)
+        SRGB_LUT_BR = led_brightness.value
     for i in range(len(np)):
         if screen.current_colors:
-            np[i] = [int(u * led_brightness.value/100) for u in screen.current_colors[i]]
+            np[i] = [SRGB_LUT[u] for u in screen.current_colors[i]]
     return oldstate
 
 

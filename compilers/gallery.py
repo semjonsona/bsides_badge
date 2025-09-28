@@ -5,9 +5,13 @@ from PIL import Image
 import numpy as np
 from sklearn.cluster import KMeans
 
+import util
+
 IMAGE_SIZE = 1024  # 128*64 bits / 8
 COLOR_SIZE = 48  # 16 colors × 3 bytes
 TEXT_SIZE = 32
+
+DEBUG = False
 
 if __name__ == '__main__':
     bb = bytearray()
@@ -23,11 +27,19 @@ if __name__ == '__main__':
         kmeans = KMeans(n_clusters=16, random_state=42)
         kmeans.fit(arr)
         cl = np.round(kmeans.cluster_centers_).astype(int)
+        if DEBUG:
+            import matplotlib.pyplot as plt
+            img = Image.new("RGB", (16, 1))
+            img.putdata([tuple(c) for c in cl])
+            img = img.resize((16 * 32, 32), Image.NEAREST)  # scale for visibility
+            plt.imshow(img)
+            plt.axis("off")
+            plt.show()
 
         img = img.convert("1", dither=Image.FLOYDSTEINBERG)
 
         fn = os.path.splitext(os.path.basename(fn))[0]
-        text = ''.join(c for c in fn if c in string.ascii_letters + string.digits + "_-,.+()/")
+        text = util.prepare_text(fn)
         if len(text) > TEXT_SIZE:
             text = text[:TEXT_SIZE // 2] + text[-TEXT_SIZE // 2:]
         while len(text) < TEXT_SIZE:
@@ -39,4 +51,5 @@ if __name__ == '__main__':
         assert len(bb) % (IMAGE_SIZE + COLOR_SIZE + TEXT_SIZE) == 0, fn
 
     bb.extend(f'generated on {datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")}'.encode())
+    print('gallery.bin size: ', len(bb))
     open('gallery.bin', 'wb').write(bb)
