@@ -630,14 +630,47 @@ async def lyrics_task(oled):
                 oled.show()
             await asyncio.sleep_ms(20)
 
+# TODO: this just stays in memory...
+TEXT_COMPRESSION_RULES = []
+def text_decompress(obj):
+    stack = [0] * 64
+    top = 0
+    out = bytearray()
+    for v in obj:
+        stack[top] = v
+        top += 1
+        while top:
+            top -= 1
+            cur = stack[top]
+            left, right = TEXT_COMPRESSION_RULES[cur]
+            if right == 0:
+                if left == ord('\n'):  # End of paragraph
+                    yield out.decode('ascii')
+                    out = bytearray()
+                else:
+                    out.append(left)
+            else:
+                stack[top] = right  # will be applied latter
+                stack[top + 1] = left
+                top += 2
+    if out:  # Don't forget the last paragraph if it exists
+        yield out.decode('ascii')
 
 class BooksScreen(ListScreen):
-    def __init__(self, oled, start=0, lenn=1<<30, title="Books", back=None):
+    def __init__(self, oled, start=-1, lenn=-1, title="Books", back=None):
         self.back = back
         self.books = self.read_books(start, lenn)
         super().__init__(oled, title, self.books)
 
     def read_books(self, start, lenn):
+        global TEXT_COMPRESSION_RULES
+        if start == -1:  # we are in the main book nav
+            with open('books.bin', "rb") as f:
+                compileinfo = f.read(struct.unpack("<I", f.read(4))[0])
+                tcr = f.read(struct.unpack("<I", f.read(4))[0])
+                TEXT_COMPRESSION_RULES = [(tcr[i], tcr[i + 1]) for i in range(0, len(tcr), 2)]
+                len_books = struct.unpack("<I", f.read(4))[0]
+                return self.read_books(f.tell(), len_books)
         entries = []
         with open('books.bin', "rb") as f:
             f.seek(start)
@@ -654,18 +687,25 @@ class BooksScreen(ListScreen):
                 f.seek(content_length, 1)  # jump from current position
         return entries
 
-    def read_text(self, start, lenn):
+    def read_bytes(self, start, lenn):
         with open('books.bin', "rb") as f:
             f.seek(start)
-            txt = f.read(lenn).decode()
-            return txt
+            remaining = lenn
+            while remaining > 0:
+                read_size = min(2048, remaining)
+                yield from f.read(read_size)
+                remaining -= read_size
 
     def on_select(self, index):
         name, tt, start, lenn = self.books[index]
         if tt == b'0':
             return BooksScreen(self.oled, start, lenn, name, self)
         elif tt == b'1':
-            text = self.read_text(start, lenn)
+            text = self.read_bytes(start, lenn).decode()
+            return TextScreen(self.oled, wri6, text, self)
+        elif tt == b'2':
+            compressed = self.read_bytes(start, lenn)
+            text = text_decompress(compressed)
             return TextScreen(self.oled, wri6, text, self)
         else:
             return MenuScreen(self.oled)
@@ -698,7 +738,9 @@ class TextScreen(Screen):
     def _wrap_text(self, text):
         lines = []
         # split paragraphs by explicit newline
-        for para in text.split("\n"):
+        if isinstance(text, str):
+            text = text.split("\n")
+        for para in text:
             words = para.split()
             line = ""
             for word in words:
@@ -1134,7 +1176,7 @@ def led_eff_rainbow2(np, oldstate):
     white = (0, 0)
     pink = (348, led_sat.value / 100)
     cyan = (197, led_sat.value / 100)
-    cls = [cyan, cyan, pink, pink, white, white, pink, pink, cyan, cyan, pink, pink, white, white, pink]
+    cls = [cyan, cyan, pink, pink, white, white, pink, pink, cyan, cyan, pink, pink, white, white, pink, pink]
 
     for i in range(n):
         # Determine which of the 8 bands this LED is in

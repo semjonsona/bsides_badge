@@ -1,3 +1,5 @@
+from datetime import datetime
+
 CHARSET = """\n !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"""
 TRANSITIONS = {'“': '"', '”': '"', '…': '...', "’": "'", "‘": "'", "—": '---', 'á': "a'", 'é': "e'", 'ï': 'ii',
                'ç': 'c,', '№': 'No', 'â': 'a', 'è': 'e`'}
@@ -8,3 +10,7 @@ def prepare_text(txt, fallback='', loud=False):
         if len(unk) != 0:
             print('unknown characters:', [(u, u.encode().hex()) for u in unk])
     return ''.join(c if c in CHARSET else TRANSITIONS[c] if c in TRANSITIONS else fallback for c in txt)
+
+
+def compile_info():
+    return f'generated on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'.encode()

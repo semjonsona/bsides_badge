@@ -1,5 +1,4 @@
 import string
-from datetime import datetime
 import os
 from PIL import Image
 import numpy as np
@@ -50,6 +49,6 @@ if __name__ == '__main__':
         bb.extend(text.encode())
         assert len(bb) % (IMAGE_SIZE + COLOR_SIZE + TEXT_SIZE) == 0, fn
 
-    bb.extend(f'generated on {datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")}'.encode())
+    bb.extend(util.compile_info())
     print('gallery.bin size: ', len(bb))
     open('gallery.bin', 'wb').write(bb)
