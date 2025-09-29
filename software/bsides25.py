@@ -356,7 +356,8 @@ class LightsScreen(ListScreen):
 # -----------------------
 # Utils screens
 # -----------------------
-
+stopwatch_running = False
+stopwatch_start_ms = 0
 class StopwatchScreen(Screen):
     """
     Simple stopwatch with live updating.
@@ -367,16 +368,18 @@ class StopwatchScreen(Screen):
     """
     def __init__(self, oled):
         super().__init__(oled)
-        self.running = False
-        self.start_ms = 0
         self.elapsed_ms = 0
         # start a small updater so time refreshes while running
         self._ticker = asyncio.create_task(self._tick())
+        self.require_full_render = True
+        self.timestr = ''
+        self.strlen_wo_cs = wri20.stringlen("00:00:00.")  # constant, thanks to the used font
 
     async def _tick(self):
+        global stopwatch_running
         try:
             while True:
-                if screen is self and self.running:
+                if screen is self and stopwatch_running:
                     self.render()
                 await asyncio.sleep_ms(100)
         except asyncio.CancelledError:
@@ -390,10 +393,11 @@ class StopwatchScreen(Screen):
 
     def render(self):
         # update elapsed if running
-        if self.running:
+        global stopwatch_running, stopwatch_start_ms
+        if stopwatch_running:
             now = time.ticks_ms()
             self.elapsed_ms = time.ticks_add(
-                time.ticks_diff(now, self.start_ms), 0
+                time.ticks_diff(now, stopwatch_start_ms), 0
             ) + self._paused_base
 
         self.oled.fill(0)
@@ -405,25 +409,27 @@ class StopwatchScreen(Screen):
         wri20.printstring(self._fmt(self.elapsed_ms))
         # Hints
         wri6.set_textpos(self.oled, 50, 0)
-        if self.running:
+        if stopwatch_running:
             wri6.printstring("SELECT=Stop  BACK=Exit")
         else:
             wri6.printstring("SELECT=Start PREV=Reset BACK=Exit")
         self.oled.show()
 
     async def handle_button(self, btn):
+        global stopwatch_running, stopwatch_start_ms
+        self.require_full_render = True
         if btn == BTN_SELECT:
-            if not self.running:
+            if not stopwatch_running:
                 # starting: remember base elapsed (supports resume)
                 self._paused_base = self.elapsed_ms
-                self.start_ms = time.ticks_ms()
-                self.running = True
+                stopwatch_start_ms = time.ticks_ms()
+                stopwatch_running = True
             else:
                 # stopping: lock in elapsed
                 now = time.ticks_ms()
-                self.elapsed_ms = self._paused_base + time.ticks_diff(now, self.start_ms)
-                self.running = False
-        elif btn == BTN_PREV and not self.running:
+                self.elapsed_ms = self._paused_base + time.ticks_diff(now, stopwatch_start_ms)
+                stopwatch_running = False
+        elif btn == BTN_PREV and not stopwatch_running:
             self.elapsed_ms = 0
             self._paused_base = 0
         elif btn == BTN_BACK:
