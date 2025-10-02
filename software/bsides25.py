@@ -17,9 +17,9 @@ import struct
 
 # Writer
 from writer.writer import Writer
-import writer.freesans20 as freesans20
-import writer.font10 as font10
-import writer.font6 as font6
+import writer.celestia24 as font_large
+import writer.celestia20 as font_medium
+import writer.celestia16 as font_small
 
 # -----------------------
 # Settings
@@ -64,9 +64,9 @@ _last_event_ms = {}  # debounce tracking
 
 i2c_oled = I2C(0, scl=Pin(I2C_SCL), sda=Pin(I2C_SDA))
 oled = ssd1306.SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, i2c_oled)
-wri6  = Writer(oled, font6, verbose=False)
-wri10 = Writer(oled, font10, verbose=False)
-wri20 = Writer(oled, freesans20, verbose=False)
+wri6  = Writer(oled, font_small, verbose=False)
+wri10 = Writer(oled, font_medium, verbose=False)
+wri20 = Writer(oled, font_large, verbose=False)
 
 username_wri = wri20
 username_lines = None
@@ -281,7 +281,7 @@ class ListScreen(Screen):
 
         # metrics
         self.line_height = self.listwriter.font.height()
-        self.rows = (self.oled.height - 20) // self.line_height  # room below header
+        self.rows = 3  # room below header
 
     async def handle_button(self, btn):
         if btn == BTN_NEXT:
@@ -308,11 +308,10 @@ class ListScreen(Screen):
 
         visible = range(self.offset, min(len(self.items), self.offset + self.rows))
         for row, i in enumerate(visible):
-            y = 20 + row * self.line_height
-            prefix = ">" if i == self.index else " "
+            y = 19 + row * 14
+            text = "{}{}".format(">" if i == self.index else " ", self.items[i][0])
             self.listwriter.set_textpos(self.oled, y, 0)
-            self.listwriter.printstring("{}{}".format(prefix, self.items[i][0]))
-
+            self.listwriter._printline_nobreak(text)
         self.oled.show()
 
     # --- to be customized in child classes ---
@@ -401,18 +400,17 @@ class StopwatchScreen(Screen):
             ) + self._paused_base
 
         self.oled.fill(0)
-        # Title
-        wri10.set_textpos(self.oled, 0, 0)
-        wri10.printstring("Stopwatch")
         # Time (big)
-        wri20.set_textpos(self.oled, 28, 0)
-        wri20.printstring(self._fmt(self.elapsed_ms))
+        wri20.set_textpos(self.oled, 0, 0)
+        wri20.printstring(self._fmt(self.elapsed_ms) + '\n')
         # Hints
-        wri6.set_textpos(self.oled, 50, 0)
+        wri6.set_textpos(self.oled, 30, 0)
         if stopwatch_running:
-            wri6.printstring("SELECT=Stop  BACK=Exit")
+            wri6.printstring("SELECT=Stop\nBACK=Leave")
+        elif self.elapsed_ms == 0:
+            wri6.printstring("SELECT=Start\nBACK=Leave")
         else:
-            wri6.printstring("SELECT=Start PREV=Reset BACK=Exit")
+            wri6.printstring("SELECT=Start\nPREV=Reset")
         self.oled.show()
 
     async def handle_button(self, btn):
@@ -501,12 +499,10 @@ class GalleryScreen(Screen):
         self.oled.fill(0)
         if self.info_mode:
             wri6.set_textpos(self.oled, 0, 0)
-            wri6.printstring(self.current_text[:16])
-            wri6.set_textpos(self.oled, 12, 0)
-            wri6.printstring(self.current_text[16:])
+            wri6.printstring(self.current_text[:16] + '\n' + self.current_text[16:])
             wri6.set_textpos(self.oled, 30, 60)
             wri6.printstring("{}/{}".format(self.index + 1, self.num_images))
-            wri6.set_textpos(self.oled, 50, 0)
+            wri6.set_textpos(self.oled, 64 - wri6.height, 0)
             wri6.printstring(self.base_info[16 * self.index: 16 * self.index + 16])
         else:
             if self.current_fb:
@@ -629,9 +625,13 @@ async def lyrics_task(oled):
             lemma, start, end = screen.lyrics[screen.lemma_i]
             if old_lemma_i != screen.lemma_i:
                 oled.fill(0)
-                wri20.set_textpos(oled, 17, 10)
-                wri20.printstring(lemma)
-
+                for w in [wri20, wri10]:
+                    ln = w.stringlen(lemma)
+                    if ln > 110:
+                        continue
+                    w.set_textpos(oled, 20 - w.height // 2, int((128 - ln) * 0.4))
+                    w.printstring(lemma)
+                    break
                 print((' ' * ((start >> 1 & 7) % 5)) + ('🎶' if start & 1 else '🎵') + lemma)
                 oled.show()
             await asyncio.sleep_ms(20)
@@ -742,24 +742,30 @@ class TextScreen(Screen):
         self.back_screen = back_screen
 
     def _wrap_text(self, text):
+        gc.collect()
+
+        space_w = self.wri.stringlen(" ")
         lines = []
         # split paragraphs by explicit newline
         if isinstance(text, str):
             text = text.split("\n")
         for para in text:
-            words = para.split()
-            line = ""
-            for word in words:
-                test_line = (line + " " + word).strip()
-                if self.wri.stringlen(test_line) <= self.oled.width:
-                    line = test_line
-                else:
-                    lines.append(line)
-                    line = word
-            if line:
-                lines.append(line)
             if para == "":  # preserve blank lines
                 lines.append("")
+                continue
+            line, line_px = [], 0
+            for word in para.split():
+                w_px = self.wri.stringlen(word)
+                needed = line_px + (space_w if line else 0) + w_px
+                if needed <= self.oled.width:
+                    line.append(word)
+                    line_px = needed
+                else:
+                    lines.append(" ".join(line))
+                    line, line_px = [word], w_px
+            if line:
+                lines.append(" ".join(line))
+        gc.collect()
         return lines
 
     def render(self):
@@ -792,7 +798,8 @@ class AboutScreen(TextScreen):
             "BSides Tallinn 2025 badge.\n"
             "Mod by Sona.\n\n"
             #"Did you get the bundle with the awesome pictures, songs and books by the MLP creators and the fandom?\n"
-            "Upstream: github.com/ks000/ bsides_badge\n"
+            "Upstream: github.com/ks000/\nbsides_badge\n"
+            "Uses the amazing Equestria Medium Redux font.\n"
             "Some light effects contributed by boxmein.\n"
             "Main colors extraction by sklearn's KMeans.\n"
             "Lyrics recognition and alignment by Whisper.\n"

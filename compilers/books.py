@@ -134,7 +134,7 @@ if __name__ == '__main__':
             continue
         s = bs4.BeautifulSoup(open('books/' + fn), features="lxml")
         chapters = []
-        brief = text_encode(s.find_all('header')[0].text.strip('\n').replace('\n', '\n\n'))
+        brief = text_encode(s.find_all('header')[0].text.strip('\n').replace('\n'))
         book_name = brief.split('\n')[0]
         chapters.append(('= Description =', brief))
         for chapter in s.find_all('article'):

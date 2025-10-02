@@ -153,6 +153,10 @@ class Writer:
             self._printchar("\n")
             self._printline(rstr, invert)  # Recurse
 
+    def _printline_nobreak(self, string):
+        for char in string:
+            self._printchar(char, False)
+
     def stringlen(self, string, oh=False):
         if not len(string):
             return 0
