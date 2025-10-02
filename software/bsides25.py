@@ -745,6 +745,7 @@ class TextScreen(Screen):
         gc.collect()
 
         space_w = self.wri.stringlen(" ")
+        tilda_w = self.wri.stringlen("~")
         lines = []
         # split paragraphs by explicit newline
         if isinstance(text, str):
@@ -760,9 +761,30 @@ class TextScreen(Screen):
                 if needed <= self.oled.width:
                     line.append(word)
                     line_px = needed
-                else:
+                elif w_px <= self.oled.width:
                     lines.append(" ".join(line))
                     line, line_px = [word], w_px
+                else:
+                    start = 0
+                    here = 0
+                    while start != len(word):
+                        while line_px + space_w + self.wri.stringlen(word[start:here + 1]) + tilda_w \
+                                <= self.oled.width:
+                            here += 1
+                            if here == len(word):
+                                break
+                        if line_px + space_w + self.wri.stringlen(word[start:]) <= self.oled.width:
+                            here = len(word)
+                        if here == len(word):  # exit route
+                            line.append(word[start:here])
+                            line_px += space_w + self.wri.stringlen(word[start:here])
+                            break
+                        else:
+                            if start != here:
+                                line.append(word[start:here] + '~')
+                                start = here
+                            lines.append(" ".join(line))
+                            line, line_px = [], 0
             if line:
                 lines.append(" ".join(line))
         gc.collect()

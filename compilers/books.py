@@ -1,3 +1,5 @@
+# Converts .html files from FimFiction
+
 import os
 import struct
 import bs4
@@ -7,16 +9,7 @@ from collections import Counter
 import util
 
 def text_encode(txt):
-    def insert_breaks_in_ascii_letters(text: str, chunk: int = 16) -> str:
-        pattern = rf'[^\s]{{{chunk + 1},}}'
-        def repl(m):
-            s = m.group(0)
-            parts = [s[i:i + chunk] for i in range(0, len(s), chunk)]
-            return '--\n'.join(parts)
-        return re.sub(pattern, repl, text)
-
     txt = util.prepare_text(txt, fallback='_', loud=True)
-    txt = insert_breaks_in_ascii_letters(txt)
     return txt
 
 def with_length(obj):
@@ -134,14 +127,16 @@ if __name__ == '__main__':
             continue
         s = bs4.BeautifulSoup(open('books/' + fn), features="lxml")
         chapters = []
-        brief = text_encode(s.find_all('header')[0].text.strip('\n').replace('\n'))
+        brief = text_encode(s.find_all('header')[0].text.strip('\n'))
         book_name = brief.split('\n')[0]
         chapters.append(('= Description =', brief))
         for chapter in s.find_all('article'):
-            title = text_encode(chapter.find('h1').text)
+            title = text_encode(chapter.find('h1').text.strip(' \n'))
             texts = [""]
-            for p in chapter.find_all('p')[1:-1]:
-                texts[-1] += text_encode(p.text)
+            elements = chapter.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+            elements = [el for el in elements if not el.find_parent(['header', 'footer'])]
+            for el in elements:
+                texts[-1] += text_encode('{ ' + el.text + ' }')
                 if len(texts[-1]) < 10000:
                     texts[-1] += '\n\n'
                 else:

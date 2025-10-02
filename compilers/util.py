@@ -2,7 +2,7 @@ from datetime import datetime
 
 CHARSET = """\n !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"""
 TRANSITIONS = {'“': '"', '”': '"', '…': '...', "’": "'", "‘": "'", "—": '---', 'á': "a'", 'é': "e'", 'ï': 'ii',
-               'ç': 'c,', '№': 'No', 'â': 'a', 'è': 'e`'}
+               'ç': 'c,', '№': 'No', 'â': 'a', 'è': 'e`', '\t': '   '}
 
 def prepare_text(txt, fallback='', loud=False):
     if loud:
