@@ -7,13 +7,11 @@ import re
 from collections import Counter
 
 import util
+from util import with_length
 
 def text_encode(txt):
     txt = util.prepare_text(txt, fallback='_', loud=True)
     return txt
-
-def with_length(obj):
-    return struct.pack("<I", len(obj)) + obj
 
 def compile(obj):
     if isinstance(obj, str):  # uncompressed text

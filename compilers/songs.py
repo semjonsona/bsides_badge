@@ -206,29 +206,32 @@ def encode_word(word, duration):
 def txt_to_bin():
     print('Packing')
     bb = bytearray()
+    bb += util.with_length(util.compile_info())
     for fn in os.listdir(TXT_DIR):
         with open(os.path.join(TXT_DIR, fn), "r", encoding="utf-8") as f:
             lines = f.read().splitlines()
+        segments = [l.split(',', 2) for l in lines if l.strip()]
+        to_fr = lambda s: int(float(s) / (RESOLUTION / 1000))
+        segments = [(to_fr(start), to_fr(end), word) for start, end, word in segments]
 
         present_fr = 0
         sb = bytearray()
-        for line in lines:
-            if not line.strip():
-                continue
-            start_str, end_str, word = line.split(",", 2)
-            start_fr = int(float(start_str) / (RESOLUTION / 1000))
-            end_fr = int(float(end_str) / (RESOLUTION / 1000))
-
-            if present_fr < start_fr:
-                sb += encode_word('', start_fr - present_fr)
-                present_fr = start_fr
-            sb += encode_word(word, end_fr - present_fr)
+        for i in range(len(segments)):
+            if present_fr < segments[i][0]:
+                sb += encode_word('', segments[i][0] - present_fr)
+                present_fr = segments[i][0]
+            end_fr = segments[i][1]
+            if i != len(segments) - 1:
+                end_fr = max(end_fr, min(end_fr + 200 // RESOLUTION, segments[i + 1][0]))
+                if (segments[i + 1][0] - end_fr) * RESOLUTION < 200:
+                    end_fr = segments[i + 1][0]
+            sb += encode_word(segments[i][2], end_fr - present_fr)
             present_fr = end_fr
+        sb += encode_word('', 1)
         goodsn = util.prepare_text(song_name(fn))
         print(f'len: {len(sb)}')
         bb += goodsn[:TITLE_SIZE].encode().ljust(TITLE_SIZE, b'\0')
-        bb += struct.pack("<I", len(sb))
-        bb += sb
+        bb += util.with_length(sb)
     print('songs.bin size: ', len(bb))
     open('songs.bin', 'wb').write(bb)
 

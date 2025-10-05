@@ -14,6 +14,7 @@ import math
 import gc
 import framebuf
 import struct
+import random
 
 # Writer
 from writer.writer import Writer
@@ -456,10 +457,11 @@ class GalleryScreen(Screen):
         self.info_mode = False
 
         with open('gallery.bin', "rb") as f:
+            compileinfo = f.read(struct.unpack("<I", f.read(4))[0])
+            self.base_offset = f.tell()
             f.seek(0, 2)
-            self.num_images = f.tell() // self.ENTRY_SIZE
+            self.num_images = (f.tell() - self.base_offset) // self.ENTRY_SIZE
             f.seek(self.num_images * self.ENTRY_SIZE)
-            self.base_info = bytearray(f.read()).decode()
         self.load_current_image()
 
     def load_current_image(self):
@@ -471,7 +473,7 @@ class GalleryScreen(Screen):
             gc.collect()
 
         with open('gallery.bin', "rb") as f:
-            f.seek(self.index * self.ENTRY_SIZE)
+            f.seek(self.base_offset + self.index * self.ENTRY_SIZE)
             fb_data = bytearray(f.read(self.IMAGE_SIZE))
             color_data = bytearray(f.read(self.COLOR_SIZE))
             text_data = bytearray(f.read(self.TEXT_SIZE))
@@ -502,8 +504,6 @@ class GalleryScreen(Screen):
             wri6.printstring(self.current_text[:16] + '\n' + self.current_text[16:])
             wri6.set_textpos(self.oled, 30, 60)
             wri6.printstring("{}/{}".format(self.index + 1, self.num_images))
-            wri6.set_textpos(self.oled, 64 - wri6.height, 0)
-            wri6.printstring(self.base_info[16 * self.index: 16 * self.index + 16])
         else:
             if self.current_fb:
                 self.oled.blit(self.current_fb, 0, 0)
@@ -528,8 +528,9 @@ class SongsScreen(ListScreen):
 
     def read_songs(self):
         with open('songs.bin', "rb") as f:
+            compileinfo = f.read(struct.unpack("<I", f.read(4))[0])
             songs = []
-            offset = 0
+            offset = f.tell()
             while True:
                 # read title
                 f.seek(offset)
@@ -825,7 +826,17 @@ class AboutScreen(TextScreen):
             "Some light effects contributed by boxmein.\n"
             "Main colors extraction by sklearn's KMeans.\n"
             "Lyrics recognition and alignment by Whisper.\n"
+            "\n"
         )
+        for fn in os.listdir():
+            if not fn.endswith('.bin'):
+                continue
+            try:
+                with open(fn, "rb") as f:
+                    compileinfo = f.read(struct.unpack("<I", f.read(4))[0])
+                    text += f'{fn} says: {compileinfo.decode()}.\n'
+            except:
+                text += f'{fn} exists.\n'
         super().__init__(oled, wri6, text)
 
 class SnakeScreen(Screen):

@@ -14,6 +14,7 @@ DEBUG = False
 
 if __name__ == '__main__':
     bb = bytearray()
+    bb += util.with_length(util.compile_info())
     for fn in os.listdir('pictures'):
         print(f'{fn}')
         img = Image.open('pictures/' + fn)
@@ -44,11 +45,14 @@ if __name__ == '__main__':
         while len(text) < TEXT_SIZE:
             text += '\0'
 
-        bb.extend(np.frombuffer(img.tobytes(), dtype=np.uint8))
-        bb.extend(cl.astype(np.uint8).tobytes())
-        bb.extend(text.encode())
-        assert len(bb) % (IMAGE_SIZE + COLOR_SIZE + TEXT_SIZE) == 0, fn
+        p = bytearray()
+        p.extend(np.frombuffer(img.tobytes(), dtype=np.uint8))
+        assert len(p) == IMAGE_SIZE
+        p.extend(cl.astype(np.uint8).tobytes())
+        assert len(p) == IMAGE_SIZE + COLOR_SIZE
+        p.extend(text.encode())
+        assert len(p) == IMAGE_SIZE + COLOR_SIZE + TEXT_SIZE
+        bb.extend(p)
 
-    bb.extend(util.compile_info())
     print('gallery.bin size: ', len(bb))
     open('gallery.bin', 'wb').write(bb)

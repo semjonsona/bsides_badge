@@ -1,8 +1,9 @@
 from datetime import datetime
+import struct
 
 CHARSET = """\n !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"""
 TRANSITIONS = {'“': '"', '”': '"', '…': '...', "’": "'", "‘": "'", "—": '---', 'á': "a'", 'é': "e'", 'ï': 'ii',
-               'ç': 'c,', '№': 'No', 'â': 'a', 'è': 'e`', '\t': '   '}
+               'ç': 'c,', '№': 'No', 'â': 'a', 'è': 'e`', '\t': '   ', "–": "-"}
 
 def prepare_text(txt, fallback='', loud=False):
     if loud:
@@ -14,3 +15,7 @@ def prepare_text(txt, fallback='', loud=False):
 
 def compile_info():
     return f'generated on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'.encode()
+
+
+def with_length(obj):
+    return struct.pack("<I", len(obj)) + obj
