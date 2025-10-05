@@ -1127,7 +1127,130 @@ class SnakeScreen(Screen):
 
         return self
 
-utils_screens = [("Stopwatch", StopwatchScreen), ("Snake", SnakeScreen)]
+
+class SudokuScreen(Screen):
+    def __init__(self, oled):
+        super().__init__(oled)
+        self.pointer_i = 0
+        self.pointer_u = 0
+        self.BASE = 3
+        self.SIDE = self.BASE * self.BASE
+        self.difficulty = 20 + random.randrange(13)
+        self.DIGITS = """
+.... ..x. .xx. xx.. .x.x xxxx .xxx .xxx ..xx .xx.
+.... ..x. ...x ..xx .x.x xx.. xx.. ...x .x.x .x.x
+.... ..x. ..x. ..xx .xxx ..x. x.x. ..x. x.x. ..xx
+.... ..x. .xxx xxx. ...x xx.. .xx. .x.. xx.. xxx.
+        """.replace(' ', '').strip('\n').split('\n')
+        self.board, self.fixed = self.sudoku_generator()
+
+    def generate_solved_sudoku(self):
+        def pattern(r: int, c: int) -> int:
+            """Base pattern for a valid Sudoku solution."""
+            return (self.BASE * (r % self.BASE) + r // self.BASE + c) % self.SIDE
+
+        def shuffle(seq):
+            seq = list(seq)
+            for i in range(len(seq) - 1, 0, -1):
+                j = random.randint(0, i)
+                seq[i], seq[j] = seq[j], seq[i]
+            return seq
+
+        r_base = range(self.BASE)
+        rows = [g * self.BASE + r for g in shuffle(r_base) for r in shuffle(r_base)]
+        cols = [g * self.BASE + c for g in shuffle(r_base) for c in shuffle(r_base)]
+        nums = shuffle(range(1, self.SIDE + 1))
+
+        board = [[nums[pattern(r, c)] for c in cols] for r in rows]
+        return board
+
+    def sudoku_generator(self):
+        board = self.generate_solved_sudoku()
+        for i in range(self.difficulty):
+            board[random.randrange(9)][random.randrange(9)] = 0
+        return board, [[bbb != 0 for bbb in bb] for bb in board]
+
+    def render(self):
+        self.oled.fill(0)
+
+        cell_size = 5  # 4 pixels + 1 gap
+        extra_block_gap = 2  # extra gap every 3 cells
+        offset_x, offset_y = 10, 6
+
+        for i in range(self.SIDE):
+            for u in range(self.SIDE):
+                x = offset_x + u * cell_size + (u // self.BASE) * extra_block_gap
+                y = offset_y + i * cell_size + (i // self.BASE) * extra_block_gap
+                val = self.board[i][u]
+
+                for dy in range(4):  # sprites are 4x4
+                    for dx in range(4):
+                        self.oled.pixel(x + dx, y + dy, self.DIGITS[dy][4*val + dx] != '.')
+
+                if self.pointer_i == i and self.pointer_u == u:
+                    for d in range(4):
+                        for t in range(4):
+                            self.oled.pixel(x + d, offset_y - 6 + t, 1)
+                            self.oled.pixel(x + d, offset_y + self.SIDE * cell_size + 2 * extra_block_gap + 1 + t, 1)
+                            self.oled.pixel(offset_x - 6 + t, y + d, 1)
+                            self.oled.pixel(offset_x + self.SIDE * cell_size + 2 * extra_block_gap + 1 + t, y + d, 1)
+
+        self.oled.show()
+
+    def board_change(self):
+        # best code, tremendous code
+        if self.fixed[self.pointer_i][self.pointer_u]:
+            return False
+        self.board[self.pointer_i][self.pointer_u] += 1
+        if self.board[self.pointer_i][self.pointer_u] > 9:
+            self.board[self.pointer_i][self.pointer_u] -= 9 + 1
+
+        # quick check
+        for i in range(self.SIDE):
+            for u in range(self.SIDE):
+                if self.board[i][u] == 0:
+                    return False
+
+        for i in range(self.SIDE):
+            occ = [0] + [0] * self.SIDE
+            for u in range(self.SIDE):
+                if occ[self.board[i][u]]:
+                    return False
+                occ[self.board[i][u]] += 1
+        for u in range(self.SIDE):
+            occ = [0] + [0] * self.SIDE
+            for i in range(self.SIDE):
+                if occ[self.board[i][u]]:
+                    return False
+                occ[self.board[i][u]] += 1
+        for q in range(self.SIDE):
+            occ = [0] + [0] * self.SIDE
+            q0 = q // 3
+            q1 = q % 3
+            for c in range(self.SIDE):
+                i = 3 * q0 + c // 3
+                u = 3 * q1 + c % 3
+                if occ[self.board[i][u]]:
+                    return False
+                occ[self.board[i][u]] += 1
+        return True
+
+
+    async def handle_button(self, btn):
+        if btn == BTN_NEXT:
+            self.pointer_i = (self.pointer_i + 1) % 9
+        elif btn == BTN_PREV:
+            self.pointer_u = (self.pointer_u + 1) % 9
+        elif btn == BTN_BACK:
+            return MenuScreen(self.oled)
+        elif btn == BTN_SELECT:
+            won = self.board_change()
+            if won:
+                return MenuScreen(self.oled)
+        return self
+
+
+utils_screens = [("Stopwatch", StopwatchScreen), ("Snake", SnakeScreen), ("Sudoku", SudokuScreen)]
 
 class UtilsScreen(ListScreen):
     def __init__(self, oled):
