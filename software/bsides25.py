@@ -1250,7 +1250,52 @@ class SudokuScreen(Screen):
         return self
 
 
-utils_screens = [("Stopwatch", StopwatchScreen), ("Snake", SnakeScreen), ("Sudoku", SudokuScreen)]
+render_task = None
+
+async def render_loop():
+    global screen
+    try:
+        while True:
+            screen.render()
+            await asyncio.sleep_ms(20)
+    except asyncio.CancelledError:
+        pass
+
+class Ecsc2025Special(Screen):
+    def __init__(self, oled):
+        super().__init__(oled)
+        self.frames = []
+        self.IMAGE_SIZE = 1024
+        with open('ecscspecial.bin', "rb") as f:
+            while True:
+                fb_data = bytearray(f.read(self.IMAGE_SIZE))
+                if len(fb_data) < self.IMAGE_SIZE:
+                    break
+                self.frames += [framebuf.FrameBuffer(fb_data, 128, 64, framebuf.MONO_HLSB)]
+
+        self.start = time.ticks_ms()
+        global render_task
+        render_task = asyncio.create_task(render_loop())
+
+    def render(self):
+        frfr = time.ticks_diff(time.ticks_ms(), self.start) // 65 % len(self.frames)
+        self.oled.blit(self.frames[frfr], 0, 0)
+        self.oled.show()
+
+    async def handle_button(self, btn):
+        global render_task
+        if btn == BTN_BACK:
+            if render_task:
+                render_task.cancel()
+                render_task = None
+            del self.frames
+            self.frames = None
+            gc.collect()
+            return MenuScreen(self.oled)
+        return self
+
+
+utils_screens = [("Stopwatch", StopwatchScreen), ("Snake", SnakeScreen), ("Sudoku", SudokuScreen), ('5gram', Ecsc2025Special)]
 
 class UtilsScreen(ListScreen):
     def __init__(self, oled):

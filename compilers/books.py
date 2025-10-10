@@ -72,8 +72,8 @@ def sheer_stone(initial_chars, rules):
     return ts
 
 
-def compress(books, max_tokens=256):
-    corpus = flatten(books) + '\0'
+def compress(to_compress, max_tokens=256, forced=None):
+    corpus = flatten(to_compress) + '\0'
 
     initial_chars = sorted(set(corpus))  # \0 at pos 0, as it should be
     char_to_id = {ch:i for i,ch in enumerate(initial_chars)}
@@ -81,8 +81,9 @@ def compress(books, max_tokens=256):
 
     seq = [char_to_id[ch] for ch in corpus]
 
+    if forced is None:
+        forced = []
     #forced = ["Twilight", "Applejack", "Rainbow", "Pinkie", "Rarity", "Fluttershy"][::-1]
-    forced = []
 
     rules = {}  # new_id -> list[old_id]
     while len(initial_chars) + len(rules) < max_tokens:
@@ -92,7 +93,9 @@ def compress(books, max_tokens=256):
                 if b'\0' not in group:
                     break
         else:
-            group = [char_to_id[c] for c in forced.pop().lower()]
+            group = forced.pop()
+            if not isinstance(group, list):
+                group = [char_to_id[c] for c in group]
         new_id = len(initial_chars) + len(rules)
         rules[new_id] = group
 
@@ -112,7 +115,7 @@ def compress(books, max_tokens=256):
         print(f'\rCompressed megaseq len: {len(seq)}, rules: {len(rules)}   ', end='')
     print()
 
-    compressed_books, flattened_more = inflate(books, seq)
+    compressed_books, flattened_more = inflate(to_compress, seq)
     assert len(flattened_more) == 0
     return sheer_stone(initial_chars, rules), compressed_books
 
@@ -134,7 +137,11 @@ if __name__ == '__main__':
             elements = chapter.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
             elements = [el for el in elements if not el.find_parent(['header', 'footer'])]
             for el in elements:
-                texts[-1] += text_encode('{ ' + el.text + ' }')
+                if list(el.children)[0].name == 'i':
+                    text = '{ ' + el.text + ' }'
+                else:
+                    text = el.text
+                texts[-1] += text_encode(text)
                 if len(texts[-1]) < 10000:
                     texts[-1] += '\n\n'
                 else:

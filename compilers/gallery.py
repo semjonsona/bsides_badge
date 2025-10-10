@@ -12,6 +12,19 @@ TEXT_SIZE = 32
 
 DEBUG = False
 
+def show_imgs(orig, down):
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+
+    axes[0].imshow(orig)
+    axes[0].axis("off")
+
+    axes[1].imshow(down.convert('1'), cmap="gray")
+    axes[1].axis("off")
+
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == '__main__':
     bb = bytearray()
     bb += util.with_length(util.compile_info())
@@ -29,14 +42,16 @@ if __name__ == '__main__':
         cl = np.round(kmeans.cluster_centers_).astype(int)
         if DEBUG:
             import matplotlib.pyplot as plt
-            img = Image.new("RGB", (16, 1))
-            img.putdata([tuple(c) for c in cl])
-            img = img.resize((16 * 32, 32), Image.NEAREST)  # scale for visibility
-            plt.imshow(img)
+            dc = Image.new("RGB", (16, 1))
+            dc.putdata([tuple(c) for c in cl])
+            dc = dc.resize((16 * 32, 32), Image.NEAREST)  # scale for visibility
+            plt.imshow(dc)
             plt.axis("off")
             plt.show()
 
-        img = img.convert("1", dither=Image.FLOYDSTEINBERG)
+        blackwhite = img.convert("1", dither=Image.FLOYDSTEINBERG)
+        if DEBUG:
+            show_imgs(img, blackwhite)
 
         fn = os.path.splitext(os.path.basename(fn))[0]
         text = util.prepare_text(fn)
@@ -46,7 +61,7 @@ if __name__ == '__main__':
             text += '\0'
 
         p = bytearray()
-        p.extend(np.frombuffer(img.tobytes(), dtype=np.uint8))
+        p.extend(np.frombuffer(blackwhite.tobytes(), dtype=np.uint8))
         assert len(p) == IMAGE_SIZE
         p.extend(cl.astype(np.uint8).tobytes())
         assert len(p) == IMAGE_SIZE + COLOR_SIZE
