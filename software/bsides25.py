@@ -204,6 +204,7 @@ async def _repeat_task(btn_id):
 class Screen:
     def __init__(self, oled):
         self.oled = oled
+        self.render_on_button = True
 
     def render(self):
         pass
@@ -857,6 +858,7 @@ class SnakeScreen(Screen):
 
     def __init__(self, oled):
         super().__init__(oled)
+        self.render_on_button = False
 
         # ----- GEOMETRY -----
         self.HUD_H = wri6.font.height()                 # your build reports 14
@@ -1250,20 +1252,11 @@ class SudokuScreen(Screen):
         return self
 
 
-render_task = None
-
-async def render_loop():
-    global screen
-    try:
-        while True:
-            screen.render()
-            await asyncio.sleep_ms(20)
-    except asyncio.CancelledError:
-        pass
-
 class Ecsc2025Special(Screen):
     def __init__(self, oled):
         super().__init__(oled)
+        self.render_on_button = False
+
         self.frames = []
         self.IMAGE_SIZE = 1024
         with open('ecscspecial.bin', "rb") as f:
@@ -1275,7 +1268,15 @@ class Ecsc2025Special(Screen):
 
         self.start = time.ticks_ms()
         global render_task
-        render_task = asyncio.create_task(render_loop())
+        self.render_task = asyncio.create_task(self.render_loop())
+
+    async def render_loop(self):
+        try:
+            while True:
+                self.render()
+                await asyncio.sleep_ms(20)
+        except asyncio.CancelledError:
+            return
 
     def render(self):
         frfr = time.ticks_diff(time.ticks_ms(), self.start) // 65 % len(self.frames)
@@ -1283,11 +1284,13 @@ class Ecsc2025Special(Screen):
         self.oled.show()
 
     async def handle_button(self, btn):
-        global render_task
         if btn == BTN_BACK:
-            if render_task:
-                render_task.cancel()
-                render_task = None
+            try:
+                if self.render_task:
+                    self._task.cancel()
+                    await asyncio.sleep_ms(0)
+            except Exception:
+                pass
             del self.frames
             self.frames = None
             gc.collect()
@@ -1295,7 +1298,129 @@ class Ecsc2025Special(Screen):
         return self
 
 
-utils_screens = [("Stopwatch", StopwatchScreen), ("Snake", SnakeScreen), ("Sudoku", SudokuScreen), ('5gram', Ecsc2025Special)]
+class PingPongScreen(Screen):
+    def __init__(self, oled):
+        super().__init__(oled)
+        self.render_on_button = False
+        self.SCREEN_Y = 64
+        self.SCREEN_X = 128
+        self.BALL_SIZE = 8.0
+        self.BOUNCER_THICK = 4
+        self.BOUNCER_LONG = 16
+        self.BOUNCERS_X = (0, 128 - self.BOUNCER_THICK)
+        self.BOUNCERS_SPEED = 8.0
+
+        self.bouncers_y = [0.0, self.SCREEN_Y - self.BOUNCER_LONG]
+        self.points = [0, 0]
+        self.round_reset()
+        self._task = asyncio.create_task(self._loop())
+
+    def round_reset(self):
+        self.round_start = time.ticks_ms()
+        self.old_time = self.round_start
+        self.bouncers_speed = [0.0, 0.0]
+        self.ball_x = (self.SCREEN_X - self.BALL_SIZE) // 2
+        self.ball_y = (self.SCREEN_Y - self.BALL_SIZE) // 2
+        self.ball_speed_x = (sum(self.points) + random.randrange(20, 33)) * (2 * random.randrange(2) - 1)
+        self.ball_speed_y = (sum(self.points) + random.randrange(20, 33)) * (2 * random.randrange(2) - 1)
+
+    def ball_faster(self):
+        def nsp(osp):
+            hard_cap = 168 + 8 * sum(self.points)
+            return osp * (0.9 + 0.3 * (1 - osp / hard_cap) * random.random())
+        self.ball_speed_x = nsp(self.ball_speed_x)
+        self.ball_speed_y = nsp(self.ball_speed_y)
+
+    def simulate(self):
+        global btn_state
+        new_time = time.ticks_ms()
+        delta_time = (new_time - self.old_time) / 1000.0
+
+        for bi in range(2):
+            # zero/infinite acceleration
+            self.bouncers_y[bi] += self.BOUNCERS_SPEED * (delta_time * self.bouncers_speed[bi])
+            self.bouncers_y[bi] = max(min(self.bouncers_y[bi], self.SCREEN_Y - self.BOUNCER_LONG), 0)
+            self.bouncers_speed[bi] = 0.0
+
+            self.bouncers_speed[bi] -= self.BOUNCERS_SPEED * btn_state.get(2 - bi, 0.0)
+            self.bouncers_speed[bi] += self.BOUNCERS_SPEED * btn_state.get(4 - bi, 0.0)
+
+        self.ball_x += delta_time * self.ball_speed_x
+        self.ball_y += delta_time * self.ball_speed_y
+
+        if self.ball_y < 0:
+            self.ball_y = -self.ball_y
+            self.ball_speed_y = -self.ball_speed_y
+        if self.ball_y > self.SCREEN_Y - self.BALL_SIZE:
+            self.ball_y = (self.SCREEN_Y - self.BALL_SIZE) - (self.ball_y - (self.SCREEN_Y - self.BALL_SIZE))
+            self.ball_speed_y = -self.ball_speed_y
+
+        if self.ball_x < self.BOUNCERS_X[0] + self.BOUNCER_THICK and not \
+                (self.bouncers_y[0] > self.ball_y + self.BALL_SIZE or
+                 self.bouncers_y[0] + self.BOUNCER_LONG < self.ball_y):
+            self.ball_x = self.BOUNCERS_X[0] + self.BOUNCER_THICK + (
+                        self.BOUNCERS_X[0] + self.BOUNCER_THICK - self.ball_x)
+            self.ball_speed_x = -self.ball_speed_x
+            self.ball_faster()
+        if self.ball_x > self.BOUNCERS_X[1] - self.BALL_SIZE and not \
+                (self.bouncers_y[1] > self.ball_y + self.BALL_SIZE or
+                 self.bouncers_y[1] + self.BOUNCER_LONG < self.ball_y):
+            self.ball_x = self.BOUNCERS_X[1] - self.BALL_SIZE - (self.ball_x - (self.BOUNCERS_X[1] - self.BALL_SIZE))
+            self.ball_speed_x = -self.ball_speed_x
+            self.ball_faster()
+
+        if self.ball_x < 0:
+            self.points[0] += 1
+            self.round_reset()
+        if self.ball_x > self.SCREEN_X - self.BALL_SIZE:
+            self.points[1] += 1
+            self.round_reset()
+
+        self.old_time = new_time
+
+    def render(self):
+        # begud
+        print(self.ball_x, self.ball_y)
+        print(self.bouncers_speed[0], self.bouncers_y[0])
+
+        self.oled.fill(0)
+
+        if self.round_start + 1000 > self.old_time:
+            score = f'{self.points[0]} : {self.points[1]}'
+            wri10.set_textpos(self.oled, 20, 64 - wri6.stringlen(score) // 2)
+            wri10.printstring(score)
+
+        for bi in range(2):
+            base_x, base_y = round(self.BOUNCERS_X[bi]), round(self.bouncers_y[bi])
+            for l in range(self.BOUNCER_LONG):
+                for w in range(self.BOUNCER_THICK):
+                    self.oled.pixel(w + base_x, l + base_y, 1)
+        ball_x, ball_y = round(self.ball_x), round(self.ball_y)
+        for l in range(round(self.BALL_SIZE)):
+            for w in range(round(self.BALL_SIZE)):
+                self.oled.pixel(l + ball_x, w + ball_y, 1)
+
+        self.oled.show()
+
+    async def _loop(self):
+        try:
+            while True:
+                self.simulate()
+                self.render()
+                await asyncio.sleep_ms(5)
+        except asyncio.CancelledError:
+            return
+
+    async def handle_button(self, btn):
+        return self  # we do nothing special on button presses
+
+
+utils_screens = [("Stopwatch", StopwatchScreen),
+                 ("Snake", SnakeScreen),
+                 ("Sudoku", SudokuScreen),
+                 ('5gram', Ecsc2025Special),
+                 ('SickDunk', PingPongScreen)]
+
 
 class UtilsScreen(ListScreen):
     def __init__(self, oled):
@@ -1781,8 +1906,7 @@ async def ui_task(oled):
             screen = MenuScreen(oled)
         screen = await screen.handle_button(btn)
 
-        # Only auto-render non-Snake screens
-        if not isinstance(screen, SnakeScreen):
+        if screen.render_on_button:
             screen.render()
 
 def wrap_text(text, writer, max_width, max_height):

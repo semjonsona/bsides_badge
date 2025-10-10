@@ -2,8 +2,9 @@ compilers/pictures
 compilers/audio
 compilers/books
 compilers/fonts
-ecscspecial
+compilers/ecscspecial
 gallery.bin
 songs.bin
 books.bin
+ecscspecial.bin
 .idea
